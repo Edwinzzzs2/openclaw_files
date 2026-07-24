@@ -3,12 +3,26 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+type failAfterDataReader struct {
+	data []byte
+}
+
+func (r *failAfterDataReader) Read(buffer []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, errors.New("server read past declared chunk length")
+	}
+	count := copy(buffer, r.data)
+	r.data = r.data[count:]
+	return count, nil
+}
 
 func TestUploadAcceptsUnknownContentLength(t *testing.T) {
 	storageRoot := t.TempDir()
@@ -40,7 +54,7 @@ func TestUploadAcceptsUnknownContentLength(t *testing.T) {
 	chunkRequest := httptest.NewRequest(
 		http.MethodPatch,
 		"/api/uploads/"+upload.ID,
-		bytes.NewBufferString("mobile"),
+		&failAfterDataReader{data: []byte("mobile")},
 	)
 	chunkRequest.ContentLength = -1
 	chunkRequest.TransferEncoding = []string{"chunked"}

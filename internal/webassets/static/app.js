@@ -374,18 +374,19 @@ function renderUploads() {
 }
 
 function uploadItemTemplate(item) {
-  const displayedOffset = Math.min(
-    item.file.size,
-    item.offset + (item.inflightBytes || 0),
-  );
-  const percent = item.file.size === 0
+  const confirmedOffset = Math.min(item.file.size, item.offset);
+  const percent = item.status === "complete" || item.file.size === 0
     ? 100
-    : Math.min(100, Math.round((displayedOffset / item.file.size) * 100));
-  const statusText = uploadStatusText(item);
+    : Math.min(99, Math.floor((confirmedOffset / item.file.size) * 100));
+  const chunkFullySent = item.inflightBytes > 0 &&
+    item.inflightBytes >= Math.min(item.chunkSize, item.file.size - item.offset);
+  const statusText = item.status === "uploading" && item.inflightBytes > 0
+    ? chunkFullySent ? "等待服务器确认" : "正在发送分片"
+    : uploadStatusText(item);
   const speed = item.speed > 0 ? `${formatBytes(item.speed)}/s` : "";
-  const route = item.status === "complete"
-    ? ""
-    : item.route === "stun" ? "STUN 高速通道" : "FRP 稳定通道";
+  const route = item.status !== "complete" && item.route === "stun"
+    ? "STUN 高速通道"
+    : "";
   const error = item.error ? `<span>${escapeHTML(item.error)}</span>` : "";
   const resultPath = item.result?.serverPath
     ? `<span>${escapeHTML(item.result.serverPath)}</span>`
@@ -416,11 +417,12 @@ function uploadItemTemplate(item) {
         </div>
         <div class="progress" role="progressbar" aria-label="${escapeHTML(item.file.name)} 上传进度"
           aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">
-          <span style="width:${percent}%"></span>
+          <span style="transform:scaleX(${percent / 100})"></span>
         </div>
         <div class="upload-meta">
           <span>${escapeHTML(statusText)}</span>
-          <span>${formatBytes(displayedOffset)} / ${formatBytes(item.file.size)}</span>
+          <span>已确认 ${formatBytes(confirmedOffset)} / ${formatBytes(item.file.size)}</span>
+          ${item.inflightBytes > 0 ? `<span>本分片已发送 ${formatBytes(item.inflightBytes)}</span>` : ""}
           ${route ? `<span>${route}</span>` : ""}
           ${speed ? `<span>${speed}</span>` : ""}
           ${error}

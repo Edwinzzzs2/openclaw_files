@@ -256,14 +256,12 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errors.New("无法定位上传偏移量"))
 		return
 	}
-	written, copyErr := io.Copy(file, io.LimitReader(r.Body, maxChunkLength+1))
+	// Stop as soon as the declared chunk is complete. Some mobile WebViews and
+	// reverse proxies delay the final request-body EOF even after all bytes have
+	// arrived, which otherwise leaves a completed chunk waiting indefinitely.
+	written, copyErr := io.CopyN(file, r.Body, declaredChunkLength)
 	syncErr := file.Sync()
 	closeErr := file.Close()
-	if written > maxChunkLength {
-		_ = os.Truncate(s.uploads.partPath(id), metadata.Offset)
-		writeError(w, http.StatusRequestEntityTooLarge, errors.New("上传分块超过允许大小"))
-		return
-	}
 	if copyErr != nil || written != declaredChunkLength || syncErr != nil || closeErr != nil {
 		_ = os.Truncate(s.uploads.partPath(id), metadata.Offset)
 		writeError(w, http.StatusBadRequest, errors.New("上传分块不完整，请重试"))

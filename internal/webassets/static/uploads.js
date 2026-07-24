@@ -142,6 +142,7 @@ export class UploadQueue extends EventTarget {
       item.offset = status.offset;
       item.inflightBytes = 0;
       item.status = "uploading";
+      item.error = "";
       this.notify();
 
       if (status.completed) {
@@ -226,6 +227,7 @@ export class UploadQueue extends EventTarget {
         );
       } catch (error) {
         item.inflightBytes = 0;
+        item.speed = 0;
         if (error?.name === "AbortError") throw error;
         lastError = error;
         if (error instanceof APIError && error.status === 409) {
@@ -246,7 +248,7 @@ export class UploadQueue extends EventTarget {
         item.status = "retrying";
         item.error = item.route === "stun"
           ? "高速通道已更新，正在重试"
-          : "网络异常，正在通过稳定通道重试";
+          : "网络异常，正在重试";
         this.notify();
         await wait(RETRY_DELAYS[attempt]);
       }
