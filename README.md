@@ -55,7 +55,7 @@ cp .env.example .env
 CLAWFILES_IMAGE=ghcr.io/edwinzzzs2/openclaw_files:latest
 HOST_STORAGE_PATH=/home/xixili/.openclaw/workspace/xixili/tmpo
 APP_PASSWORD=设置一个长密码
-HTTP_PORT=8080
+HTTP_PORT=3661
 PUID=1000
 PGID=1000
 COOKIE_SECURE=false
@@ -70,7 +70,7 @@ docker compose up -d
 打开：
 
 ```text
-http://服务器地址:8080
+http://服务器地址:3661
 ```
 
 这里的目录映射为：
