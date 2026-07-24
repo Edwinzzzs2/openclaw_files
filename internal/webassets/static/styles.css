@@ -239,6 +239,10 @@ a {
   margin: 28px auto 72px;
 }
 
+body.selection-active .app {
+  margin-bottom: 112px;
+}
+
 .view {
   display: none;
 }
@@ -333,6 +337,18 @@ a {
   background: var(--accent-hover);
 }
 
+.button.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+.button.danger:hover {
+  border-color: var(--danger);
+  background: var(--danger);
+  filter: brightness(.94);
+}
+
 .button.block {
   width: 100%;
 }
@@ -406,7 +422,7 @@ code {
 .file-header,
 .file-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 130px 180px 170px;
+  grid-template-columns: minmax(260px, 1fr) 130px 180px 64px;
   align-items: center;
   column-gap: 12px;
 }
@@ -428,11 +444,91 @@ code {
   background: var(--surface-subtle);
 }
 
+.file-row.selected {
+  background: var(--surface-active);
+}
+
 .file-name {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 13px;
+}
+
+.header-selection,
+.row-selection {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.row-selection {
+  width: 22px;
+  height: 40px;
+  justify-content: center;
+}
+
+.header-selection input,
+.row-selection input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.checkbox-mark {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.checkbox-mark::after {
+  width: 8px;
+  height: 4px;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #fff;
+  content: "";
+  opacity: 0;
+  transform: translateY(-1px) rotate(-45deg) scale(.7);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.header-selection input:checked + .checkbox-mark,
+.row-selection input:checked + .checkbox-mark,
+.header-selection input:indeterminate + .checkbox-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.header-selection input:checked + .checkbox-mark::after,
+.row-selection input:checked + .checkbox-mark::after {
+  opacity: 1;
+  transform: translateY(-1px) rotate(-45deg) scale(1);
+}
+
+.header-selection input:indeterminate + .checkbox-mark::after {
+  width: 8px;
+  height: 0;
+  border-bottom: 2px solid #fff;
+  border-left: 0;
+  opacity: 1;
+  transform: none;
+}
+
+.header-selection input:focus-visible + .checkbox-mark,
+.row-selection input:focus-visible + .checkbox-mark {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .file-name-button {
@@ -480,6 +576,17 @@ code {
   display: flex;
   justify-content: flex-end;
   gap: 4px;
+}
+
+.quick-copy {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  color: var(--accent);
+}
+
+.quick-copy > span {
+  display: none;
 }
 
 .type-block {
@@ -1079,6 +1186,107 @@ code {
   display: none;
 }
 
+.selection-bar {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  left: 24px;
+  z-index: 30;
+  width: min(760px, calc(100% - 48px));
+  min-height: 64px;
+  margin: auto;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 16px 48px rgba(19, 31, 35, .18);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.selection-summary {
+  min-width: 105px;
+  display: grid;
+  gap: 2px;
+}
+
+.selection-summary strong {
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.selection-summary span {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.selection-actions {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.selection-actions button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 11px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.selection-actions button:hover {
+  background: var(--surface-active);
+  color: var(--accent);
+}
+
+.selection-actions button.danger {
+  color: var(--danger);
+}
+
+.selection-actions button.danger:hover {
+  background: var(--danger-soft);
+}
+
+.selection-actions button:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+
+.selection-actions .selection-close {
+  width: 38px;
+  padding: 0;
+  color: var(--text-3);
+  font-size: 21px;
+}
+
+.delete-dialog-body {
+  padding: 18px 18px 8px;
+}
+
+.delete-dialog-body p {
+  margin: 0;
+}
+
+.delete-warning {
+  margin-top: 10px !important;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.delete-dialog-footer {
+  padding: 10px 18px 18px;
+}
+
 @media (max-width: 760px) {
   input,
   textarea,
@@ -1155,6 +1363,16 @@ code {
     padding: 10px 8px 10px 12px;
   }
 
+  .row-selection {
+    width: 20px;
+  }
+
+  .checkbox-mark {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+  }
+
   .file-size,
   .file-time {
     display: none;
@@ -1167,6 +1385,11 @@ code {
   .file-actions .preview-action,
   .file-actions [data-action="open"] {
     display: none;
+  }
+
+  .quick-copy {
+    width: 42px;
+    height: 42px;
   }
 
   .action-button {
@@ -1253,6 +1476,43 @@ code {
     background: var(--surface);
     display: grid;
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .selection-bar {
+    right: 12px;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    left: 12px;
+    width: auto;
+    min-height: 108px;
+    padding: 11px 10px 10px;
+    border-radius: 16px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .selection-summary {
+    min-width: 0;
+    padding: 0 4px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .selection-actions {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) 38px;
+    gap: 3px;
+  }
+
+  .selection-actions button {
+    min-width: 0;
+    min-height: 42px;
+    padding: 6px 3px;
+    font-size: 12px;
+  }
+
+  body.selection-active .app {
+    margin-bottom: calc(194px + env(safe-area-inset-bottom));
   }
 
   .mobile-nav button {

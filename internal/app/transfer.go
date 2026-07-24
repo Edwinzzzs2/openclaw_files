@@ -288,6 +288,12 @@ func (s *Server) authorizeTransferRequest(r *http.Request) bool {
 		return err == nil &&
 			s.transfer.verifyToken(r.URL.Query().Get("transfer_token"), "content", relative)
 	}
+	if strings.HasPrefix(r.URL.Path, "/api/selection/archive/") &&
+		(r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/selection/archive/")
+		return validUploadID(id) &&
+			s.transfer.verifyToken(r.URL.Query().Get("transfer_token"), "archive", id)
+	}
 	return false
 }
 
@@ -323,7 +329,9 @@ func (s *Server) transferCORS(next http.Handler) http.Handler {
 }
 
 func isTransferResource(path string) bool {
-	return path == "/api/content" || strings.HasPrefix(path, "/api/uploads/")
+	return path == "/api/content" ||
+		strings.HasPrefix(path, "/api/uploads/") ||
+		strings.HasPrefix(path, "/api/selection/archive/")
 }
 
 func validTransferOrigin(origin string) bool {

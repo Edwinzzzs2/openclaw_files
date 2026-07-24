@@ -79,6 +79,20 @@ export function createFolder(path, name) {
   });
 }
 
+export function prepareSelectionArchive(directory, paths) {
+  return apiFetch("/api/selection/archive", {
+    method: "POST",
+    body: { directory, paths },
+  });
+}
+
+export function deleteSelection(directory, paths) {
+  return apiFetch("/api/selection/delete", {
+    method: "POST",
+    body: { directory, paths },
+  });
+}
+
 export function loadRecent() {
   return apiFetch("/api/recent");
 }

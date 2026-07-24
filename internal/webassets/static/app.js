@@ -2,12 +2,14 @@ import {
   APIError,
   contentURL,
   createFolder,
+  deleteSelection,
   downloadURL,
   listFiles,
   loadConfig,
   loadRecent,
   login,
   logout,
+  prepareSelectionArchive,
   session,
 } from "./api.js";
 import { UploadQueue } from "./uploads.js";
@@ -18,6 +20,7 @@ const state = {
   entries: [],
   uploadTarget: "",
   pickerPath: "",
+  selectedPaths: new Set(),
   view: "uploads",
   config: null,
 };
@@ -43,6 +46,14 @@ const elements = {
   newFolderButton: document.querySelector("#new-folder-button"),
   filesUploadButton: document.querySelector("#files-upload-button"),
   refreshFilesButton: document.querySelector("#refresh-files-button"),
+  selectAllCheckbox: document.querySelector("#select-all-checkbox"),
+  selectionBar: document.querySelector("#selection-bar"),
+  selectionCount: document.querySelector("#selection-count"),
+  selectionSelectAll: document.querySelector("#selection-select-all"),
+  selectionCopy: document.querySelector("#selection-copy"),
+  selectionDownload: document.querySelector("#selection-download"),
+  selectionDelete: document.querySelector("#selection-delete"),
+  selectionClear: document.querySelector("#selection-clear"),
   uploadTargetPath: document.querySelector("#upload-target-path"),
   chooseTargetButton: document.querySelector("#choose-target-button"),
   filePicker: document.querySelector("#file-picker"),
@@ -68,6 +79,9 @@ const elements = {
   pickerList: document.querySelector("#picker-list"),
   pickerUpButton: document.querySelector("#picker-up-button"),
   pickerConfirmButton: document.querySelector("#picker-confirm-button"),
+  deleteDialog: document.querySelector("#delete-dialog"),
+  deleteSummary: document.querySelector("#delete-summary"),
+  confirmDeleteButton: document.querySelector("#confirm-delete-button"),
   toast: document.querySelector("#toast"),
   toastTitle: document.querySelector("#toast-title"),
   toastMessage: document.querySelector("#toast-message"),
@@ -117,10 +131,18 @@ function bindEvents() {
   elements.pickerUpButton.addEventListener("click", pickerGoUp);
   elements.pickerConfirmButton.addEventListener("click", confirmPickerPath);
   elements.fileList.addEventListener("click", handleFileAction);
+  elements.fileList.addEventListener("change", handleSelectionChange);
   elements.recentList.addEventListener("click", handleFileAction);
   elements.uploadList.addEventListener("click", handleUploadAction);
   elements.breadcrumbs.addEventListener("click", handleBreadcrumbClick);
   elements.pickerList.addEventListener("click", handlePickerClick);
+  elements.selectAllCheckbox.addEventListener("change", toggleVisibleSelection);
+  elements.selectionSelectAll.addEventListener("click", toggleVisibleSelection);
+  elements.selectionCopy.addEventListener("click", copySelectedPaths);
+  elements.selectionDownload.addEventListener("click", downloadSelected);
+  elements.selectionDelete.addEventListener("click", openDeleteDialog);
+  elements.selectionClear.addEventListener("click", clearSelection);
+  elements.confirmDeleteButton.addEventListener("click", confirmDeleteSelection);
 
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
@@ -210,6 +232,9 @@ function showLogin(message = "") {
 }
 
 function switchView(view, updateHash = true) {
+  if (view !== "files" && state.selectedPaths.size > 0) {
+    clearSelection();
+  }
   state.view = view;
   document.querySelectorAll("[data-view-panel]").forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.viewPanel === view);
@@ -233,8 +258,10 @@ async function loadDirectory(path) {
     state.currentPath = response.path;
     state.currentServerPath = response.serverPath;
     state.entries = response.entries;
+    state.selectedPaths.clear();
     renderBreadcrumbs();
     renderFiles();
+    renderSelectionBar();
   } catch (error) {
     showToast("无法读取目录", error?.message || "请求失败");
   } finally {
@@ -259,14 +286,12 @@ function renderBreadcrumbs() {
 }
 
 function renderFiles() {
-  const query = elements.searchInput.value.trim().toLocaleLowerCase();
-  const entries = query
-    ? state.entries.filter((entry) => entry.name.toLocaleLowerCase().includes(query))
-    : state.entries;
+  const entries = visibleFileEntries();
 
   elements.entryCount.textContent = `${entries.length} 项`;
   elements.filesEmpty.hidden = entries.length > 0;
   elements.fileList.innerHTML = entries.map(fileRowTemplate).join("");
+  renderSelectionBar();
 }
 
 function fileRowTemplate(entry, recent = false) {
@@ -278,19 +303,19 @@ function fileRowTemplate(entry, recent = false) {
   const timeLabel = recent && entry.uploadedAt
     ? formatDate(entry.uploadedAt)
     : formatDate(entry.modifiedAt);
-  const primaryAction = isDirectory
-    ? `<button class="action-button" type="button" aria-label="打开文件夹" data-action="open" data-path="${escapeHTML(entry.path)}">${actionIconSVG("open")}<span>打开</span></button>`
-    : entry.preview
-      ? `<button class="action-button preview-action" type="button" aria-label="预览文件" data-action="preview" data-entry="${encodeEntry(entry)}">${actionIconSVG("preview")}<span>预览</span></button>`
-      : "";
-  const copyAction = `<button class="action-button" type="button" aria-label="复制服务器路径" data-action="copy" data-path="${escapeHTML(entry.serverPath)}">${actionIconSVG("copy")}<span>复制路径</span></button>`;
-  const downloadAction = isDirectory
+  const selected = !recent && state.selectedPaths.has(entry.path);
+  const selectionControl = recent
     ? ""
-    : `<button class="action-button" type="button" aria-label="下载文件" data-action="download" data-entry="${encodeEntry(entry)}">${actionIconSVG("download")}<span>下载</span></button>`;
+    : `<label class="row-selection" title="选择 ${escapeHTML(entry.name)}">
+        <input type="checkbox" data-select-path="${escapeHTML(entry.path)}" ${selected ? "checked" : ""} aria-label="选择 ${escapeHTML(entry.name)}" />
+        <span class="checkbox-mark" aria-hidden="true"></span>
+      </label>`;
+  const copyAction = `<button class="action-button quick-copy" type="button" title="复制服务器路径" aria-label="复制服务器路径" data-action="copy" data-path="${escapeHTML(entry.serverPath)}">${actionIconSVG("copy")}<span>复制路径</span></button>`;
 
   return `
-    <article class="file-row">
+    <article class="file-row ${selected ? "selected" : ""}">
       <div class="file-name">
+        ${selectionControl}
         <div class="type-block ${escapeHTML(type.className)}" title="${escapeHTML(type.label)}" aria-hidden="true">${fileIconSVG(type.icon)}</div>
         <div class="file-name-copy">
           <button class="file-name-button" type="button"
@@ -305,7 +330,7 @@ function fileRowTemplate(entry, recent = false) {
       </div>
       <div class="file-size">${isDirectory ? "文件夹" : formatBytes(entry.size)}</div>
       <time class="file-time">${escapeHTML(timeLabel)}</time>
-      <div class="file-actions">${primaryAction}${copyAction}${downloadAction}</div>
+      <div class="file-actions">${copyAction}</div>
     </article>`;
 }
 
@@ -313,6 +338,15 @@ function handleFileAction(event) {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
+  if (
+    state.selectedPaths.size > 0 &&
+    elements.fileList.contains(button) &&
+    action !== "copy"
+  ) {
+    const path = button.dataset.path || decodeEntry(button.dataset.entry)?.path;
+    if (path) toggleSelectedPath(path);
+    return;
+  }
   if (action === "open") {
     loadDirectory(button.dataset.path);
     switchView("files");
@@ -326,6 +360,144 @@ function handleFileAction(event) {
   if (!entry) return;
   if (action === "preview") openPreview(entry);
   if (action === "download") startDownload(entry);
+}
+
+function handleSelectionChange(event) {
+  const checkbox = event.target.closest("[data-select-path]");
+  if (!checkbox) return;
+  if (checkbox.checked) {
+    state.selectedPaths.add(checkbox.dataset.selectPath);
+  } else {
+    state.selectedPaths.delete(checkbox.dataset.selectPath);
+  }
+  renderFiles();
+}
+
+function toggleSelectedPath(path) {
+  if (state.selectedPaths.has(path)) {
+    state.selectedPaths.delete(path);
+  } else {
+    state.selectedPaths.add(path);
+  }
+  renderFiles();
+}
+
+function visibleFileEntries() {
+  const query = elements.searchInput.value.trim().toLocaleLowerCase();
+  return query
+    ? state.entries.filter((entry) => entry.name.toLocaleLowerCase().includes(query))
+    : state.entries;
+}
+
+function selectedEntries() {
+  return state.entries.filter((entry) => state.selectedPaths.has(entry.path));
+}
+
+function renderSelectionBar() {
+  const selected = selectedEntries();
+  const visible = visibleFileEntries();
+  const visibleSelectedCount = visible.filter((entry) => state.selectedPaths.has(entry.path)).length;
+  const allVisibleSelected = visible.length > 0 && visibleSelectedCount === visible.length;
+
+  elements.selectionBar.hidden = selected.length === 0 || state.view !== "files";
+  elements.selectionCount.textContent = `已选择 ${selected.length} 项`;
+  elements.selectionSelectAll.textContent = allVisibleSelected ? "取消全选" : "全选";
+  elements.selectAllCheckbox.checked = allVisibleSelected;
+  elements.selectAllCheckbox.indeterminate = visibleSelectedCount > 0 && !allVisibleSelected;
+  document.body.classList.toggle(
+    "selection-active",
+    selected.length > 0 && state.view === "files",
+  );
+}
+
+function toggleVisibleSelection() {
+  const visible = visibleFileEntries();
+  const allSelected = visible.length > 0 &&
+    visible.every((entry) => state.selectedPaths.has(entry.path));
+  for (const entry of visible) {
+    if (allSelected) {
+      state.selectedPaths.delete(entry.path);
+    } else {
+      state.selectedPaths.add(entry.path);
+    }
+  }
+  renderFiles();
+}
+
+function clearSelection() {
+  state.selectedPaths.clear();
+  renderFiles();
+}
+
+async function copySelectedPaths() {
+  const entries = selectedEntries();
+  if (!entries.length) return;
+  await copyText(
+    entries.map((entry) => entry.serverPath).join("\n"),
+    `已复制 ${entries.length} 条服务器路径`,
+  );
+}
+
+async function downloadSelected() {
+  const entries = selectedEntries();
+  if (!entries.length) return;
+  elements.selectionDownload.disabled = true;
+  try {
+    if (entries.length === 1 && entries[0].type !== "directory") {
+      startDownload(entries[0]);
+      return;
+    }
+    const archive = await prepareSelectionArchive(
+      state.currentPath,
+      entries.map((entry) => entry.path),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = archive.url;
+    anchor.download = "";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    showToast("正在打包下载", `${entries.length} 个项目`);
+  } catch (error) {
+    showToast("无法下载所选项目", error?.message || "请求失败");
+  } finally {
+    elements.selectionDownload.disabled = false;
+  }
+}
+
+function openDeleteDialog() {
+  const entries = selectedEntries();
+  if (!entries.length) return;
+  const folders = entries.filter((entry) => entry.type === "directory").length;
+  const files = entries.length - folders;
+  const parts = [];
+  if (files) parts.push(`${files} 个文件`);
+  if (folders) parts.push(`${folders} 个文件夹`);
+  elements.deleteSummary.textContent = `即将删除 ${parts.join("和")}。`;
+  elements.deleteDialog.showModal();
+}
+
+async function confirmDeleteSelection() {
+  const entries = selectedEntries();
+  if (!entries.length) {
+    elements.deleteDialog.close();
+    return;
+  }
+  elements.confirmDeleteButton.disabled = true;
+  try {
+    await deleteSelection(
+      state.currentPath,
+      entries.map((entry) => entry.path),
+    );
+    elements.deleteDialog.close();
+    state.selectedPaths.clear();
+    await loadDirectory(state.currentPath);
+    showToast("删除完成", `已删除 ${entries.length} 个项目`);
+  } catch (error) {
+    showToast("删除失败", error?.message || "请求失败");
+  } finally {
+    elements.confirmDeleteButton.disabled = false;
+  }
 }
 
 function handleBreadcrumbClick(event) {
@@ -601,7 +773,7 @@ function closeDialog(id) {
   if (dialog?.open) dialog.close();
 }
 
-async function copyText(value) {
+async function copyText(value, toastMessage = value) {
   try {
     await navigator.clipboard.writeText(value);
   } catch {
@@ -614,7 +786,7 @@ async function copyText(value) {
     document.execCommand("copy");
     textArea.remove();
   }
-  showToast("路径已复制", value);
+  showToast("路径已复制", toastMessage);
 }
 
 function showToast(title, message = "") {

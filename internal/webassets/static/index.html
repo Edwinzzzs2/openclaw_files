@@ -64,8 +64,12 @@
             <span class="entry-count" id="entry-count"></span>
             <button class="toolbar-button" id="refresh-files-button" type="button">刷新</button>
           </div>
-          <div class="file-header" aria-hidden="true">
-            <span>名称</span>
+          <div class="file-header">
+            <label class="header-selection">
+              <input id="select-all-checkbox" type="checkbox" aria-label="选择当前列表全部项目" />
+              <span class="checkbox-mark" aria-hidden="true"></span>
+              <span>名称</span>
+            </label>
             <span>大小</span>
             <span>修改时间</span>
             <span>操作</span>
@@ -140,6 +144,20 @@
       </section>
     </main>
 
+    <aside class="selection-bar" id="selection-bar" aria-live="polite" hidden>
+      <div class="selection-summary">
+        <strong id="selection-count">已选择 0 项</strong>
+        <span>批量操作</span>
+      </div>
+      <div class="selection-actions">
+        <button type="button" id="selection-select-all">全选</button>
+        <button type="button" id="selection-copy">复制路径</button>
+        <button type="button" id="selection-download">下载</button>
+        <button class="danger" type="button" id="selection-delete">删除</button>
+        <button class="selection-close" type="button" id="selection-clear" aria-label="取消选择">×</button>
+      </div>
+    </aside>
+
     <nav class="mobile-nav" aria-label="移动端主导航">
       <button class="active" type="button" data-view="uploads">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></svg>
@@ -201,6 +219,24 @@
       <button class="button primary" id="picker-confirm-button" type="button">选择当前目录</button>
     </div>
     <div class="picker-list" id="picker-list"></div>
+  </dialog>
+
+  <dialog class="dialog small-dialog delete-dialog" id="delete-dialog">
+    <header class="dialog-header">
+      <div>
+        <strong>删除所选项目</strong>
+        <span>此操作无法撤销</span>
+      </div>
+      <button class="icon-button" type="button" data-close-dialog="delete-dialog" aria-label="关闭">×</button>
+    </header>
+    <div class="delete-dialog-body">
+      <p id="delete-summary"></p>
+      <p class="delete-warning">文件夹中的所有内容也会一起删除，请确认没有选错。</p>
+    </div>
+    <footer class="dialog-footer delete-dialog-footer">
+      <button class="button" type="button" data-close-dialog="delete-dialog">取消</button>
+      <button class="button danger" id="confirm-delete-button" type="button">确认删除</button>
+    </footer>
   </dialog>
 
   <aside class="toast" id="toast" role="status" aria-live="polite">

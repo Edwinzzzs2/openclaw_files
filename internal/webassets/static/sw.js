@@ -1,4 +1,4 @@
-const CACHE_NAME = "clawfiles-shell-v5";
+const CACHE_NAME = "clawfiles-shell-v6";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -40,6 +40,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (
+    request.method === "GET" &&
+    url.origin === self.location.origin &&
+    url.pathname.startsWith("/selection/archive/")
+  ) {
+    event.respondWith(fetchSelectionArchive(url));
+    return;
+  }
+  if (
     request.method !== "GET" ||
     url.origin !== self.location.origin ||
     url.pathname.startsWith("/api/")
@@ -64,6 +72,50 @@ self.addEventListener("fetch", (event) => {
     caches.match(request).then((cached) => cached || fetch(request)),
   );
 });
+
+async function fetchSelectionArchive(url) {
+  const segments = url.pathname.split("/").filter(Boolean);
+  const id = segments[segments.length - 1] || "";
+  let plan;
+  try {
+    const response = await fetch("/api/selection/archive/plan", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-ClawFiles-Request": "1",
+      },
+      body: JSON.stringify({ id }),
+    });
+    if (!response.ok) return response;
+    plan = await response.json();
+  } catch {
+    plan = null;
+  }
+
+  if (plan?.directUrl) {
+    try {
+      const directResponse = await fetch(plan.directUrl, {
+        method: "GET",
+        credentials: "omit",
+        cache: "no-store",
+      });
+      if (directResponse.ok) return directResponse;
+    } catch {
+      // Fall through to the stable origin.
+    }
+  }
+
+  return fetch(
+    plan?.fallbackUrl || `/api/selection/archive/${encodeURIComponent(id)}`,
+    {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+    },
+  );
+}
 
 async function fetchTransferContent(request, url) {
   const path = url.searchParams.get("path") || "";

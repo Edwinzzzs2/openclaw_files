@@ -14,13 +14,14 @@ import (
 )
 
 type Server struct {
-	config   Config
-	paths    pathResolver
-	auth     *authenticator
-	recent   *recentStore
-	uploads  *uploadManager
-	transfer *transferManager
-	handler  http.Handler
+	config         Config
+	paths          pathResolver
+	auth           *authenticator
+	recent         *recentStore
+	uploads        *uploadManager
+	transfer       *transferManager
+	archiveTickets *archiveTicketStore
+	handler        http.Handler
 }
 
 func NewServer(config Config) (http.Handler, error) {
@@ -33,10 +34,11 @@ func NewServer(config Config) (http.Handler, error) {
 	paths := newPathResolver(config.StorageRoot, config.HostPathPrefix)
 	recent := newRecentStore(metadataDirectory, paths)
 	server := &Server{
-		config: config,
-		paths:  paths,
-		auth:   newAuthenticator(config.Password, config.CookieSecure),
-		recent: recent,
+		config:         config,
+		paths:          paths,
+		auth:           newAuthenticator(config.Password, config.CookieSecure),
+		recent:         recent,
+		archiveTickets: newArchiveTicketStore(),
 	}
 	transfer, err := newTransferManager(metadataDirectory, config)
 	if err != nil {
@@ -83,6 +85,7 @@ func (s *Server) routes() http.Handler {
 	})
 
 	mux.HandleFunc("GET /api/files", s.handleListFiles)
+	mux.HandleFunc("POST /api/selection/delete", s.handleDeleteSelection)
 	mux.HandleFunc("POST /api/folders", s.handleCreateFolder)
 	mux.HandleFunc("GET /api/content", s.handleContent)
 	mux.HandleFunc("HEAD /api/content", s.handleContent)
@@ -90,6 +93,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/transfer", s.handleGetTransfer)
 	mux.HandleFunc("POST /api/transfer/content", s.handleTransferContentPlan)
 	mux.HandleFunc("POST /api/webhooks/stun", s.handleSTUNWebhook)
+	mux.HandleFunc("POST /api/selection/archive", s.handlePrepareSelectionArchive)
+	mux.HandleFunc("POST /api/selection/archive/plan", s.handleSelectionArchivePlan)
+	mux.HandleFunc("GET /api/selection/archive/{id}", s.handleDownloadSelectionArchive)
 
 	mux.HandleFunc("POST /api/uploads", s.handleCreateUpload)
 	mux.HandleFunc("GET /api/uploads/{id}", s.handleGetUpload)
@@ -98,6 +104,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/uploads/{id}", s.handleDeleteUpload)
 	mux.HandleFunc("GET /transfer/content", s.handleContent)
 	mux.HandleFunc("HEAD /transfer/content", s.handleContent)
+	mux.HandleFunc("GET /selection/archive/{id}", s.handleDownloadSelectionArchive)
 
 	mux.Handle("/", webassets.Handler())
 
@@ -113,7 +120,7 @@ func (s *Server) routes() http.Handler {
 
 func (s *Server) requireAuthentication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/transfer/content" {
+		if r.URL.Path == "/transfer/content" || strings.HasPrefix(r.URL.Path, "/selection/archive/") {
 			if !s.auth.authenticated(r) {
 				writeError(w, http.StatusUnauthorized, errors.New("请先登录"))
 				return
