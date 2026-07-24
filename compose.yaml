@@ -1,6 +1,6 @@
 services:
   clawfiles:
-    image: ${CLAWFILES_IMAGE:-ghcr.io/your-github-name/clawfiles:latest}
+    image: ${CLAWFILES_IMAGE:-ghcr.io/edwinzzzs2/openclaw_files:latest}
     container_name: clawfiles
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"

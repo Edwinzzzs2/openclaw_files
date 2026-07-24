@@ -52,7 +52,7 @@ cp .env.example .env
 编辑 `.env`：
 
 ```dotenv
-CLAWFILES_IMAGE=ghcr.io/你的用户名/你的仓库名:latest
+CLAWFILES_IMAGE=ghcr.io/edwinzzzs2/openclaw_files:latest
 HOST_STORAGE_PATH=/srv/openclaw/files
 APP_PASSWORD=设置一个长密码
 HTTP_PORT=8080
