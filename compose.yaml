@@ -9,13 +9,13 @@ services:
     environment:
       LISTEN_ADDR: ":8080"
       STORAGE_ROOT: "/data"
-      HOST_PATH_PREFIX: "${HOST_STORAGE_PATH}"
+      HOST_PATH_PREFIX: "${HOST_STORAGE_PATH:-/home/xixili/.openclaw/workspace/xixili/tmpo}"
       APP_PASSWORD: "${APP_PASSWORD:?APP_PASSWORD is required}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       MAX_UPLOAD_SIZE: "${MAX_UPLOAD_SIZE:-107374182400}"
       UPLOAD_CHUNK_SIZE: "${UPLOAD_CHUNK_SIZE:-8388608}"
     volumes:
-      - "${HOST_STORAGE_PATH}:/data"
+      - "${HOST_STORAGE_PATH:-/home/xixili/.openclaw/workspace/xixili/tmpo}:/data"
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777

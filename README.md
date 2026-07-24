@@ -53,7 +53,7 @@ cp .env.example .env
 
 ```dotenv
 CLAWFILES_IMAGE=ghcr.io/edwinzzzs2/openclaw_files:latest
-HOST_STORAGE_PATH=/srv/openclaw/files
+HOST_STORAGE_PATH=/home/xixili/.openclaw/workspace/xixili/tmpo
 APP_PASSWORD=设置一个长密码
 HTTP_PORT=8080
 PUID=1000
@@ -76,7 +76,7 @@ http://服务器地址:8080
 这里的目录映射为：
 
 ```text
-服务器 /srv/openclaw/files  ->  容器 /data
+服务器 /home/xixili/.openclaw/workspace/xixili/tmpo  ->  容器 /data
 ```
 
 页面复制的路径使用 `HOST_PATH_PREFIX`，Compose 已将它设置成 `HOST_STORAGE_PATH`。因此容器中的：
@@ -88,7 +88,7 @@ http://服务器地址:8080
 页面会复制为：
 
 ```text
-/srv/openclaw/files/tasks/video.mp4
+/home/xixili/.openclaw/workspace/xixili/tmpo/tasks/video.mp4
 ```
 
 ## HTTPS 与 PWA
