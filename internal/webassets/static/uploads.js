@@ -3,10 +3,12 @@ import {
   cancelUpload as cancelRemoteUpload,
   createUpload,
   getUpload,
+  loadTransferStatus,
   uploadChunk,
 } from "./api.js";
 
 const MAX_CONCURRENT_UPLOADS = 2;
+const MOBILE_SAFE_CHUNK_SIZE = 2 * 1024 * 1024;
 const RETRY_DELAYS = [1000, 2500, 5000];
 let nextLocalID = 1;
 
@@ -27,7 +29,10 @@ export class UploadQueue extends EventTarget {
         remoteID: "",
         offset: 0,
         inflightBytes: 0,
-        chunkSize: 8 * 1024 * 1024,
+        chunkSize: MOBILE_SAFE_CHUNK_SIZE,
+        transferToken: "",
+        transferEndpoint: "",
+        route: "stable",
         status: "queued",
         speed: 0,
         error: "",
@@ -118,7 +123,9 @@ export class UploadQueue extends EventTarget {
     let status = await this.restoreOrCreate(item);
     item.remoteID = status.id;
     item.offset = status.offset;
-    item.chunkSize = status.chunkSize;
+    item.chunkSize = Math.min(status.chunkSize, MOBILE_SAFE_CHUNK_SIZE);
+    item.transferToken = status.transferToken || "";
+    await this.refreshTransferRoute(item);
     if (status.completed) {
       this.finish(item, status.file);
       return;
@@ -155,6 +162,7 @@ export class UploadQueue extends EventTarget {
           status.directory === item.directory
         ) {
           item.remoteID = status.id;
+          item.transferToken = status.transferToken || "";
           return status;
         }
       } catch (error) {
@@ -170,8 +178,25 @@ export class UploadQueue extends EventTarget {
       lastModified: item.file.lastModified,
     });
     item.remoteID = status.id;
+    item.transferToken = status.transferToken || "";
     localStorage.setItem(this.storageKey(item), status.id);
     return status;
+  }
+
+  async refreshTransferRoute(item) {
+    try {
+      const transfer = await loadTransferStatus();
+      if (transfer.available && transfer.baseUrl && item.transferToken) {
+        item.transferEndpoint = transfer.baseUrl;
+        item.route = "stun";
+        return true;
+      }
+    } catch {
+      // The stable origin remains usable when transfer discovery fails.
+    }
+    item.transferEndpoint = "";
+    item.route = "stable";
+    return false;
   }
 
   async sendWithRetry(item, chunk) {
@@ -194,6 +219,10 @@ export class UploadQueue extends EventTarget {
             item.speed = item.inflightBytes / durationSeconds;
             this.notifyProgress();
           },
+          {
+            baseURL: item.transferEndpoint,
+            transferToken: item.transferEndpoint ? item.transferToken : "",
+          },
         );
       } catch (error) {
         item.inflightBytes = 0;
@@ -202,11 +231,22 @@ export class UploadQueue extends EventTarget {
         if (error instanceof APIError && error.status === 409) {
           const status = await getUpload(item.remoteID);
           item.offset = status.offset;
+          item.transferToken = status.transferToken || item.transferToken;
           return status;
+        }
+        if (error instanceof APIError && error.status === 0) {
+          const previousEndpoint = item.transferEndpoint;
+          const foundTransfer = await this.refreshTransferRoute(item);
+          if (foundTransfer && item.transferEndpoint === previousEndpoint) {
+            item.transferEndpoint = "";
+            item.route = "stable";
+          }
         }
         if (attempt >= RETRY_DELAYS.length) break;
         item.status = "retrying";
-        item.error = "网络异常，正在重试";
+        item.error = item.route === "stun"
+          ? "高速通道已更新，正在重试"
+          : "网络异常，正在通过稳定通道重试";
         this.notify();
         await wait(RETRY_DELAYS[attempt]);
       }

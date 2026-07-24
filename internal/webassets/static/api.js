@@ -64,6 +64,10 @@ export function loadConfig() {
   return apiFetch("/api/config");
 }
 
+export function loadTransferStatus() {
+  return apiFetch("/api/transfer");
+}
+
 export function listFiles(path = "") {
   return apiFetch(`/api/files?path=${encodeURIComponent(path)}`);
 }
@@ -90,21 +94,40 @@ export function getUpload(id) {
   return apiFetch(`/api/uploads/${encodeURIComponent(id)}`);
 }
 
-export function uploadChunk(id, offset, chunk, signal, onProgress) {
+export function uploadChunk(id, offset, chunk, signal, onProgress, options = {}) {
   return new Promise((resolve, reject) => {
+    const noProgressTimeout = 20_000;
     const request = new XMLHttpRequest();
+    const baseURL = String(options.baseURL || "").replace(/\/+$/, "");
+    let watchdog = 0;
+    let timedOut = false;
     const abortRequest = () => request.abort();
-    const cleanup = () => signal?.removeEventListener("abort", abortRequest);
+    const cleanup = () => {
+      clearTimeout(watchdog);
+      signal?.removeEventListener("abort", abortRequest);
+    };
+    const armWatchdog = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        timedOut = true;
+        request.abort();
+      }, noProgressTimeout);
+    };
 
-    request.open("PATCH", `/api/uploads/${encodeURIComponent(id)}`);
+    request.open("PATCH", `${baseURL}/api/uploads/${encodeURIComponent(id)}`);
     request.responseType = "text";
-    request.withCredentials = true;
+    request.withCredentials = !options.transferToken;
     request.setRequestHeader("Accept", "application/json");
     request.setRequestHeader("Content-Type", "application/offset+octet-stream");
     request.setRequestHeader("Upload-Offset", String(offset));
+    request.setRequestHeader("Upload-Chunk-Length", String(chunk.size));
     request.setRequestHeader("X-ClawFiles-Request", "1");
+    if (options.transferToken) {
+      request.setRequestHeader("X-ClawFiles-Transfer-Token", options.transferToken);
+    }
 
     request.upload.addEventListener("progress", (event) => {
+      armWatchdog();
       onProgress?.(event.loaded, event.total || chunk.size);
     });
     request.addEventListener("load", () => {
@@ -125,7 +148,11 @@ export function uploadChunk(id, offset, chunk, signal, onProgress) {
     });
     request.addEventListener("abort", () => {
       cleanup();
-      reject(new DOMException("Upload stopped", "AbortError"));
+      if (timedOut) {
+        reject(new APIError("上传连接长时间没有进度", 0));
+      } else {
+        reject(new DOMException("Upload stopped", "AbortError"));
+      }
     });
 
     if (signal?.aborted) {
@@ -133,6 +160,7 @@ export function uploadChunk(id, offset, chunk, signal, onProgress) {
       return;
     }
     signal?.addEventListener("abort", abortRequest, { once: true });
+    armWatchdog();
     request.send(chunk);
   });
 }
@@ -157,4 +185,10 @@ export function contentURL(path, download = false) {
   const query = new URLSearchParams({ path });
   if (download) query.set("download", "1");
   return `/api/content?${query.toString()}`;
+}
+
+export function downloadURL(path, download = true) {
+  const query = new URLSearchParams({ path });
+  if (download) query.set("download", "1");
+  return `/transfer/content?${query.toString()}`;
 }

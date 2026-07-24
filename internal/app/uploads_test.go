@@ -46,6 +46,7 @@ func TestUploadAcceptsUnknownContentLength(t *testing.T) {
 	chunkRequest.TransferEncoding = []string{"chunked"}
 	chunkRequest.Header.Set("Content-Type", "application/offset+octet-stream")
 	chunkRequest.Header.Set("Upload-Offset", "0")
+	chunkRequest.Header.Set("Upload-Chunk-Length", "6")
 	chunkRequest.Header.Set("X-ClawFiles-Request", "1")
 	chunkResponse := httptest.NewRecorder()
 	handler.ServeHTTP(chunkResponse, chunkRequest)

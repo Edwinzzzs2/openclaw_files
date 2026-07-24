@@ -2,6 +2,7 @@ import {
   APIError,
   contentURL,
   createFolder,
+  downloadURL,
   listFiles,
   loadConfig,
   loadRecent,
@@ -381,6 +382,9 @@ function uploadItemTemplate(item) {
     : Math.min(100, Math.round((displayedOffset / item.file.size) * 100));
   const statusText = uploadStatusText(item);
   const speed = item.speed > 0 ? `${formatBytes(item.speed)}/s` : "";
+  const route = item.status === "complete"
+    ? ""
+    : item.route === "stun" ? "STUN 高速通道" : "FRP 稳定通道";
   const error = item.error ? `<span>${escapeHTML(item.error)}</span>` : "";
   const resultPath = item.result?.serverPath
     ? `<span>${escapeHTML(item.result.serverPath)}</span>`
@@ -415,6 +419,7 @@ function uploadItemTemplate(item) {
         <div class="upload-meta">
           <span>${escapeHTML(statusText)}</span>
           <span>${formatBytes(displayedOffset)} / ${formatBytes(item.file.size)}</span>
+          ${route ? `<span>${route}</span>` : ""}
           ${speed ? `<span>${speed}</span>` : ""}
           ${error}
           ${resultPath}
@@ -509,7 +514,7 @@ function confirmPickerPath() {
 async function openPreview(entry) {
   elements.previewTitle.textContent = entry.name;
   elements.previewMeta.textContent = `${formatBytes(entry.size)}，${entry.serverPath}`;
-  elements.previewDownload.href = contentURL(entry.path, true);
+  elements.previewDownload.href = downloadURL(entry.path);
   elements.previewDownload.download = entry.name;
   elements.previewContent.replaceChildren();
   elements.previewDialog.showModal();
@@ -579,7 +584,7 @@ function clearPreview() {
 
 function startDownload(entry) {
   const anchor = document.createElement("a");
-  anchor.href = contentURL(entry.path, true);
+  anchor.href = downloadURL(entry.path);
   anchor.download = entry.name;
   document.body.append(anchor);
   anchor.click();

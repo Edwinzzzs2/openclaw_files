@@ -34,14 +34,15 @@ type uploadMetadata struct {
 }
 
 type uploadStatus struct {
-	ID        string       `json:"id"`
-	Name      string       `json:"name"`
-	Directory string       `json:"directory"`
-	Size      int64        `json:"size"`
-	Offset    int64        `json:"offset"`
-	ChunkSize int64        `json:"chunkSize"`
-	Completed bool         `json:"completed"`
-	File      *recentEntry `json:"file,omitempty"`
+	ID            string       `json:"id"`
+	Name          string       `json:"name"`
+	Directory     string       `json:"directory"`
+	Size          int64        `json:"size"`
+	Offset        int64        `json:"offset"`
+	ChunkSize     int64        `json:"chunkSize"`
+	Completed     bool         `json:"completed"`
+	File          *recentEntry `json:"file,omitempty"`
+	TransferToken string       `json:"transferToken,omitempty"`
 }
 
 type uploadManager struct {
@@ -151,6 +152,7 @@ func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 		status.Completed = true
 		status.File = &file
 	}
+	s.attachUploadTransferToken(&status)
 	writeJSON(w, http.StatusCreated, status)
 }
 
@@ -178,7 +180,9 @@ func (s *Server) handleGetUpload(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	writeJSON(w, http.StatusOK, uploadStatusFromMetadata(metadata, s.uploads.chunkSize))
+	status := uploadStatusFromMetadata(metadata, s.uploads.chunkSize)
+	s.attachUploadTransferToken(&status)
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +200,20 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("上传偏移量无效"))
 		return
 	}
-	if r.ContentLength == 0 {
+	declaredChunkLength := r.ContentLength
+	if headerValue := strings.TrimSpace(r.Header.Get("Upload-Chunk-Length")); headerValue != "" {
+		headerLength, err := strconv.ParseInt(headerValue, 10, 64)
+		if err != nil || headerLength <= 0 {
+			writeError(w, http.StatusBadRequest, errors.New("上传分块长度无效"))
+			return
+		}
+		if r.ContentLength > 0 && r.ContentLength != headerLength {
+			writeError(w, http.StatusBadRequest, errors.New("上传分块长度不一致"))
+			return
+		}
+		declaredChunkLength = headerLength
+	}
+	if declaredChunkLength <= 0 {
 		writeError(w, http.StatusLengthRequired, errors.New("上传分块不能为空"))
 		return
 	}
@@ -224,7 +241,7 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	maxChunkLength := min(s.uploads.chunkSize, remaining)
-	if r.ContentLength > maxChunkLength {
+	if declaredChunkLength > maxChunkLength {
 		writeError(w, http.StatusRequestEntityTooLarge, errors.New("上传分块超过允许大小"))
 		return
 	}
@@ -247,7 +264,7 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, errors.New("上传分块超过允许大小"))
 		return
 	}
-	if copyErr != nil || written == 0 || (r.ContentLength > 0 && written != r.ContentLength) || syncErr != nil || closeErr != nil {
+	if copyErr != nil || written != declaredChunkLength || syncErr != nil || closeErr != nil {
 		_ = os.Truncate(s.uploads.partPath(id), metadata.Offset)
 		writeError(w, http.StatusBadRequest, errors.New("上传分块不完整，请重试"))
 		return
@@ -272,6 +289,7 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		status.Completed = true
 		status.File = &completedFile
 	}
+	s.attachUploadTransferToken(&status)
 	writeJSON(w, http.StatusOK, status)
 }
 

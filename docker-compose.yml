@@ -13,7 +13,10 @@ services:
       APP_PASSWORD: "${APP_PASSWORD:?APP_PASSWORD is required}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       MAX_UPLOAD_SIZE: "${MAX_UPLOAD_SIZE:-107374182400}"
-      UPLOAD_CHUNK_SIZE: "${UPLOAD_CHUNK_SIZE:-8388608}"
+      UPLOAD_CHUNK_SIZE: "${UPLOAD_CHUNK_SIZE:-2097152}"
+      STUN_TRANSFER_DOMAIN: "${STUN_TRANSFER_DOMAIN:-}"
+      STUN_WEBHOOK_TOKEN: "${STUN_WEBHOOK_TOKEN:-}"
+      TRANSFER_SIGNING_KEY: "${TRANSFER_SIGNING_KEY:-}"
     volumes:
       - "${HOST_STORAGE_PATH:-/home/xixili/.openclaw/workspace/xixili/tmpo}:/data"
     read_only: true

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,29 +10,35 @@ import (
 )
 
 const (
-	defaultChunkSize     = int64(8 * 1024 * 1024)
+	defaultChunkSize     = int64(2 * 1024 * 1024)
 	defaultMaxUploadSize = int64(100 * 1024 * 1024 * 1024)
 )
 
 type Config struct {
-	ListenAddr      string
-	StorageRoot     string
-	HostPathPrefix  string
-	Password        string
-	CookieSecure    bool
-	MaxUploadSize   int64
-	UploadChunkSize int64
+	ListenAddr         string
+	StorageRoot        string
+	HostPathPrefix     string
+	Password           string
+	CookieSecure       bool
+	MaxUploadSize      int64
+	UploadChunkSize    int64
+	STUNTransferDomain string
+	STUNWebhookToken   string
+	TransferSigningKey string
 }
 
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		ListenAddr:      envOrDefault("LISTEN_ADDR", ":8080"),
-		StorageRoot:     envOrDefault("STORAGE_ROOT", "/data"),
-		HostPathPrefix:  strings.TrimSpace(os.Getenv("HOST_PATH_PREFIX")),
-		Password:        os.Getenv("APP_PASSWORD"),
-		CookieSecure:    envBool("COOKIE_SECURE", false),
-		MaxUploadSize:   envInt64("MAX_UPLOAD_SIZE", defaultMaxUploadSize),
-		UploadChunkSize: envInt64("UPLOAD_CHUNK_SIZE", defaultChunkSize),
+		ListenAddr:         envOrDefault("LISTEN_ADDR", ":8080"),
+		StorageRoot:        envOrDefault("STORAGE_ROOT", "/data"),
+		HostPathPrefix:     strings.TrimSpace(os.Getenv("HOST_PATH_PREFIX")),
+		Password:           os.Getenv("APP_PASSWORD"),
+		CookieSecure:       envBool("COOKIE_SECURE", false),
+		MaxUploadSize:      envInt64("MAX_UPLOAD_SIZE", defaultMaxUploadSize),
+		UploadChunkSize:    envInt64("UPLOAD_CHUNK_SIZE", defaultChunkSize),
+		STUNTransferDomain: strings.TrimSpace(os.Getenv("STUN_TRANSFER_DOMAIN")),
+		STUNWebhookToken:   strings.TrimSpace(os.Getenv("STUN_WEBHOOK_TOKEN")),
+		TransferSigningKey: strings.TrimSpace(os.Getenv("TRANSFER_SIGNING_KEY")),
 	}
 
 	root, err := filepath.Abs(cfg.StorageRoot)
@@ -59,8 +66,55 @@ func LoadConfig() (Config, error) {
 	if cfg.UploadChunkSize > 64*1024*1024 {
 		return Config{}, fmt.Errorf("UPLOAD_CHUNK_SIZE must not exceed 64 MiB")
 	}
+	transferValues := 0
+	for _, value := range []string{
+		cfg.STUNTransferDomain,
+		cfg.STUNWebhookToken,
+		cfg.TransferSigningKey,
+	} {
+		if value != "" {
+			transferValues++
+		}
+	}
+	if transferValues != 0 && transferValues != 3 {
+		return Config{}, fmt.Errorf("STUN_TRANSFER_DOMAIN, STUN_WEBHOOK_TOKEN and TRANSFER_SIGNING_KEY must be configured together")
+	}
+	if transferValues == 3 {
+		if !validTransferDomain(cfg.STUNTransferDomain) {
+			return Config{}, fmt.Errorf("STUN_TRANSFER_DOMAIN must be a hostname without scheme, path or port")
+		}
+		if len(cfg.STUNWebhookToken) < 24 {
+			return Config{}, fmt.Errorf("STUN_WEBHOOK_TOKEN must contain at least 24 characters")
+		}
+		if len(cfg.TransferSigningKey) < 32 {
+			return Config{}, fmt.Errorf("TRANSFER_SIGNING_KEY must contain at least 32 characters")
+		}
+	}
 
 	return cfg, nil
+}
+
+func validTransferDomain(value string) bool {
+	if value == "" || strings.ContainsAny(value, "/:@?#[]") || len(value) > 253 {
+		return false
+	}
+	if net.ParseIP(value) != nil {
+		return true
+	}
+	for _, label := range strings.Split(value, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') &&
+				(character < 'A' || character > 'Z') &&
+				(character < '0' || character > '9') &&
+				character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func envOrDefault(key, fallback string) string {

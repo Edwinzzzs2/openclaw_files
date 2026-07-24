@@ -21,9 +21,11 @@ ClawFiles 是一个面向手机使用的单目录文件投递器。它把服务�
 
 - 多文件上传队列
 - 每个文件独立显示进度和速度
-- 默认使用 8 MiB 分块
+- 默认使用 2 MiB 分块，兼容手机 PWA 和移动网络
 - 同时上传两个文件
 - 暂停、继续、取消和失败重试
+- 单个分块 20 秒没有进度时自动中止并续传
+- STUN 高速地址不可用时自动回到当前 FRP 域名
 - 刷新页面后，重新选择同一个文件可以从服务器保存的偏移量继续
 - 同名文件不会覆盖，自动命名为 `文件名 (1).ext`
 - 完成前保存在隐藏目录，完成后再原子链接到目标目录
@@ -59,6 +61,9 @@ HTTP_PORT=3661
 PUID=1000
 PGID=1000
 COOKIE_SECURE=false
+STUN_TRANSFER_DOMAIN=
+STUN_WEBHOOK_TOKEN=
+TRANSFER_SIGNING_KEY=
 ```
 
 确认 `PUID` 和 `PGID` 对 `HOST_STORAGE_PATH` 具有读写权限，然后启动：
@@ -124,7 +129,56 @@ server {
 }
 ```
 
-默认上传分块为 8 MiB，因此反向代理只需要允许略大于单个分块的请求，而不需要允许单个 100 GB 请求。
+默认上传分块为 2 MiB，因此反向代理只需要允许略大于单个分块的请求，而不需要允许单个 100 GB 请求。
+
+## STUN 高速上传与下载
+
+PWA 始终从稳定的 FRP 域名打开，不会发生页面跳转。ClawFiles 收到端口变化 Webhook 后，仅把上传和下载请求优先发往 STUN 高速地址；高速地址连接失败时，会自动回到当前页面所在的 FRP 域名。`STUN_TRANSFER_DOMAIN` 可以与当前 PWA 域名完全不同，不需要配置 `PUBLIC_ORIGIN`。
+
+Compose 中配置：
+
+```yaml
+environment:
+  COOKIE_SECURE: "true"
+  STUN_TRANSFER_DOMAIN: "stun.example.com"
+  STUN_WEBHOOK_TOKEN: "至少24位的随机Webhook令牌"
+  TRANSFER_SIGNING_KEY: "至少32位的随机签名密钥"
+```
+
+`STUN_TRANSFER_DOMAIN` 只填写域名，不要带 `https://`、路径或端口。三个 STUN 变量必须一起填写；全部留空则关闭高速通道。可以用下面的命令生成随机值：
+
+```bash
+openssl rand -hex 24
+openssl rand -hex 32
+```
+
+端口变化时，请求：
+
+```http
+POST /api/webhooks/stun
+Authorization: Bearer <STUN_WEBHOOK_TOKEN>
+Content-Type: application/json
+```
+
+请求体：
+
+```json
+{
+  "event": "stun_port_changed",
+  "ip": "112.86.208.141",
+  "port": 29717,
+  "previous_port": 28566,
+  "domains": ["app.example.com"],
+  "ids": [],
+  "updated_at": "2026-07-24T13:37:00.000Z"
+}
+```
+
+ClawFiles 固定使用 YAML 中的 `STUN_TRANSFER_DOMAIN`，不会信任 Webhook 里的 `domains`。状态保存在 `/data/.clawfiles/stun.json`，时间更早或重复的通知会被安全忽略。
+
+STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口，并由它使用 `STUN_TRANSFER_DOMAIN` 的有效证书终止 TLS，再反向代理到 ClawFiles 的 HTTP `:8080`。不要把公网 STUN 端口直接转发到 ClawFiles 的纯 HTTP 端口，否则浏览器无法通过 HTTPS 上传。
+
+上传任务使用独立的短期签名令牌，不依赖两个域名之间共享 Cookie；下载通过 PWA 的 Service Worker 先尝试 STUN，连接失败后改走 FRP。
 
 ## 配置
 
@@ -136,13 +190,17 @@ server {
 | `APP_PASSWORD` | 空 | 登录密码。为空时关闭鉴权，不建议公网使用 |
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设置为 `true` |
 | `MAX_UPLOAD_SIZE` | `107374182400` | 单文件上限，单位为字节，默认 100 GiB |
-| `UPLOAD_CHUNK_SIZE` | `8388608` | 分块大小，单位为字节，允许 1-64 MiB |
+| `UPLOAD_CHUNK_SIZE` | `2097152` | 服务端允许的分块大小，单位为字节，允许 1-64 MiB；网页端最多使用 2 MiB |
+| `STUN_TRANSFER_DOMAIN` | 空 | STUN 高速通道域名，只填写主机名 |
+| `STUN_WEBHOOK_TOKEN` | 空 | 接收端口变化通知的 Bearer 令牌，至少 24 位 |
+| `TRANSFER_SIGNING_KEY` | 空 | 跨域上传和下载令牌的签名密钥，至少 32 位 |
 
 ClawFiles 会在映射目录下创建：
 
 ```text
 .clawfiles/
   recent.json
+  stun.json
   uploads/
 ```
 

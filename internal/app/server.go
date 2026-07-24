@@ -14,12 +14,13 @@ import (
 )
 
 type Server struct {
-	config  Config
-	paths   pathResolver
-	auth    *authenticator
-	recent  *recentStore
-	uploads *uploadManager
-	handler http.Handler
+	config   Config
+	paths    pathResolver
+	auth     *authenticator
+	recent   *recentStore
+	uploads  *uploadManager
+	transfer *transferManager
+	handler  http.Handler
 }
 
 func NewServer(config Config) (http.Handler, error) {
@@ -37,6 +38,11 @@ func NewServer(config Config) (http.Handler, error) {
 		auth:   newAuthenticator(config.Password, config.CookieSecure),
 		recent: recent,
 	}
+	transfer, err := newTransferManager(metadataDirectory, config)
+	if err != nil {
+		return nil, err
+	}
+	server.transfer = transfer
 	server.uploads = newUploadManager(
 		uploadDirectory,
 		paths,
@@ -81,36 +87,50 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/content", s.handleContent)
 	mux.HandleFunc("HEAD /api/content", s.handleContent)
 	mux.HandleFunc("GET /api/recent", s.handleRecent)
+	mux.HandleFunc("GET /api/transfer", s.handleGetTransfer)
+	mux.HandleFunc("POST /api/transfer/content", s.handleTransferContentPlan)
+	mux.HandleFunc("POST /api/webhooks/stun", s.handleSTUNWebhook)
 
 	mux.HandleFunc("POST /api/uploads", s.handleCreateUpload)
 	mux.HandleFunc("GET /api/uploads/{id}", s.handleGetUpload)
 	mux.HandleFunc("HEAD /api/uploads/{id}", s.handleGetUpload)
 	mux.HandleFunc("PATCH /api/uploads/{id}", s.handlePatchUpload)
 	mux.HandleFunc("DELETE /api/uploads/{id}", s.handleDeleteUpload)
+	mux.HandleFunc("GET /transfer/content", s.handleContent)
+	mux.HandleFunc("HEAD /transfer/content", s.handleContent)
 
 	mux.Handle("/", webassets.Handler())
 
 	var handler http.Handler = mux
 	handler = s.requireAuthentication(handler)
 	handler = requireApplicationRequestHeader(handler)
+	handler = s.transferCORS(handler)
 	handler = requestLogger(handler)
 	handler = recoverPanics(handler)
-	handler = securityHeaders(handler)
+	handler = s.securityHeaders(handler)
 	return handler
 }
 
 func (s *Server) requireAuthentication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/transfer/content" {
+			if !s.auth.authenticated(r) {
+				writeError(w, http.StatusUnauthorized, errors.New("请先登录"))
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
 			return
 		}
 		switch r.URL.Path {
-		case "/api/health", "/api/session", "/api/auth/login":
+		case "/api/health", "/api/session", "/api/auth/login", "/api/webhooks/stun":
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !s.auth.authenticated(r) {
+		if !s.auth.authenticated(r) && !s.authorizeTransferRequest(r) {
 			writeError(w, http.StatusUnauthorized, errors.New("请先登录"))
 			return
 		}
@@ -121,6 +141,7 @@ func (s *Server) requireAuthentication(next http.Handler) http.Handler {
 func requireApplicationRequestHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") &&
+			r.URL.Path != "/api/webhooks/stun" &&
 			r.Method != http.MethodGet &&
 			r.Method != http.MethodHead &&
 			r.Method != http.MethodOptions &&
@@ -132,10 +153,14 @@ func requireApplicationRequestHeader(next http.Handler) http.Handler {
 	})
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connectSource := "'self'"
+		if s.transfer.enabled() {
+			connectSource += " https://" + s.config.STUNTransferDomain + ":*"
+		}
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'")
+			"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; frame-src 'self'; connect-src "+connectSource+"; object-src 'none'; base-uri 'none'; form-action 'self'")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
