@@ -19,16 +19,18 @@ func Handler() http.Handler {
 	fileServer := http.FileServer(http.FS(content))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestPath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if requestPath == "" || requestPath == "." {
-			requestPath = "index.html"
-		}
+		serveIndex := requestPath == "" || requestPath == "." || requestPath == "index.html"
 		info, err := fs.Stat(content, requestPath)
 		if err != nil || info.IsDir() {
-			requestPath = "index.html"
+			serveIndex = true
 		}
 		cloned := r.Clone(r.Context())
 		urlCopy := *r.URL
-		urlCopy.Path = "/" + requestPath
+		if serveIndex {
+			urlCopy.Path = "/"
+		} else {
+			urlCopy.Path = "/" + requestPath
+		}
 		cloned.URL = &urlCopy
 		fileServer.ServeHTTP(w, cloned)
 	})
