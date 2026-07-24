@@ -1,0 +1,29 @@
+{
+  "id": "/",
+  "name": "ClawFiles",
+  "short_name": "ClawFiles",
+  "description": "上传文件到服务器并复制绝对路径",
+  "start_url": "/#files",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f8",
+  "theme_color": "#f5f7f8",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "上传文件",
+      "url": "/#uploads"
+    },
+    {
+      "name": "最近上传",
+      "url": "/#recent"
+    }
+  ]
+}

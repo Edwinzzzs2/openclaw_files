@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f7f8" />
+  <meta name="description" content="上传文件到服务器并复制绝对路径" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+  <title>ClawFiles</title>
+</head>
+<body>
+  <section class="login-screen" id="login-screen" hidden>
+    <form class="login-panel" id="login-form">
+      <div class="brand login-brand">claw<span>files</span></div>
+      <h1>登录到文件服务</h1>
+      <p>输入服务器设置的访问密码。</p>
+      <label class="field">
+        <span>密码</span>
+        <input id="password-input" type="password" autocomplete="current-password" required autofocus />
+      </label>
+      <p class="form-error" id="login-error" role="alert"></p>
+      <button class="button primary block" type="submit">登录</button>
+    </form>
+  </section>
+
+  <div id="app-shell" hidden>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#files" aria-label="ClawFiles 首页">claw<span>files</span></a>
+        <div class="server-status"><span class="status-mark"></span>服务器在线</div>
+        <nav class="desktop-nav" aria-label="主导航">
+          <button class="nav-button active" type="button" data-view="files">文件</button>
+          <button class="nav-button" type="button" data-view="uploads">上传</button>
+          <button class="nav-button" type="button" data-view="recent">最近</button>
+        </nav>
+        <div class="topbar-spacer"></div>
+        <label class="search-wrap" id="search-wrap">
+          <span class="sr-only">搜索当前目录</span>
+          <input class="search" id="search-input" type="search" placeholder="搜索当前目录" />
+        </label>
+        <button class="icon-button" id="theme-button" type="button" aria-label="切换主题">◐</button>
+        <button class="text-button" id="logout-button" type="button">退出</button>
+      </div>
+    </header>
+
+    <main class="app">
+      <section class="view active" id="files-view" data-view-panel="files">
+        <header class="page-heading">
+          <div class="heading-copy">
+            <h1>文件</h1>
+            <div class="breadcrumbs" id="breadcrumbs" aria-label="目录路径"></div>
+          </div>
+          <div class="page-actions">
+            <button class="button" id="new-folder-button" type="button">新建文件夹</button>
+            <button class="button primary" id="files-upload-button" type="button">上传</button>
+          </div>
+        </header>
+
+        <section class="file-panel" aria-label="文件列表">
+          <div class="panel-toolbar">
+            <code class="current-server-path" id="current-server-path"></code>
+            <span class="entry-count" id="entry-count"></span>
+            <button class="toolbar-button" id="refresh-files-button" type="button">刷新</button>
+          </div>
+          <div class="file-header" aria-hidden="true">
+            <span>名称</span>
+            <span>大小</span>
+            <span>修改时间</span>
+            <span>操作</span>
+          </div>
+          <div id="file-list"></div>
+          <div class="empty-state" id="files-empty" hidden>
+            <strong>这个文件夹是空的</strong>
+            <span>可以上传文件或新建文件夹。</span>
+          </div>
+          <div class="loading-state" id="files-loading" hidden>正在读取目录</div>
+        </section>
+      </section>
+
+      <section class="view" id="uploads-view" data-view-panel="uploads">
+        <header class="page-heading">
+          <div class="heading-copy">
+            <h1>上传</h1>
+            <p>文件分块写入服务器，网络中断后可重新选择同一文件继续。</p>
+          </div>
+          <button class="button" id="choose-target-button" type="button">选择目标目录</button>
+        </header>
+
+        <section class="upload-target">
+          <span>目标目录</span>
+          <code id="upload-target-path"></code>
+        </section>
+
+        <label class="dropzone" id="dropzone" for="file-picker">
+          <strong>选择文件</strong>
+          <span>支持多文件、大文件和失败重试</span>
+          <input id="file-picker" type="file" multiple hidden />
+        </label>
+
+        <section class="upload-queue" aria-label="上传队列">
+          <header class="section-heading">
+            <h2>上传队列</h2>
+            <button class="text-button" id="clear-completed-button" type="button">清除已完成</button>
+          </header>
+          <div id="upload-list"></div>
+          <div class="empty-state compact" id="uploads-empty">
+            <strong>还没有上传任务</strong>
+            <span>选择文件后会在这里显示进度。</span>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="recent-view" data-view-panel="recent">
+        <header class="page-heading">
+          <div class="heading-copy">
+            <h1>最近</h1>
+            <p>最近成功上传到服务器的文件。</p>
+          </div>
+          <button class="button" id="refresh-recent-button" type="button">刷新</button>
+        </header>
+        <section class="file-panel" aria-label="最近上传">
+          <div class="file-header recent-header" aria-hidden="true">
+            <span>名称</span>
+            <span>大小</span>
+            <span>上传时间</span>
+            <span>操作</span>
+          </div>
+          <div id="recent-list"></div>
+          <div class="empty-state" id="recent-empty" hidden>
+            <strong>暂无最近上传</strong>
+            <span>上传成功的文件会出现在这里。</span>
+          </div>
+          <div class="loading-state" id="recent-loading" hidden>正在读取记录</div>
+        </section>
+      </section>
+    </main>
+
+    <nav class="mobile-nav" aria-label="移动端主导航">
+      <button class="active" type="button" data-view="files">文件</button>
+      <button type="button" data-view="uploads">上传</button>
+      <button type="button" data-view="recent">最近</button>
+    </nav>
+  </div>
+
+  <dialog class="dialog" id="preview-dialog">
+    <header class="dialog-header">
+      <div>
+        <strong id="preview-title"></strong>
+        <span id="preview-meta"></span>
+      </div>
+      <div class="dialog-actions">
+        <a class="button" id="preview-download" href="#" download>下载</a>
+        <button class="icon-button" type="button" data-close-dialog="preview-dialog" aria-label="关闭预览">×</button>
+      </div>
+    </header>
+    <div class="preview-content" id="preview-content"></div>
+  </dialog>
+
+  <dialog class="dialog small-dialog" id="folder-dialog">
+    <form method="dialog" id="folder-form">
+      <header class="dialog-header">
+        <strong>新建文件夹</strong>
+        <button class="icon-button" type="button" data-close-dialog="folder-dialog" aria-label="关闭">×</button>
+      </header>
+      <label class="field">
+        <span>文件夹名称</span>
+        <input id="folder-name-input" type="text" maxlength="255" required />
+      </label>
+      <p class="form-error" id="folder-error" role="alert"></p>
+      <footer class="dialog-footer">
+        <button class="button" type="button" data-close-dialog="folder-dialog">取消</button>
+        <button class="button primary" type="submit">创建</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="dialog small-dialog folder-picker" id="folder-picker-dialog">
+    <header class="dialog-header">
+      <div>
+        <strong>选择上传目录</strong>
+        <code id="picker-current-path"></code>
+      </div>
+      <button class="icon-button" type="button" data-close-dialog="folder-picker-dialog" aria-label="关闭">×</button>
+    </header>
+    <div class="picker-toolbar">
+      <button class="button" id="picker-up-button" type="button">上一级</button>
+      <button class="button primary" id="picker-confirm-button" type="button">选择当前目录</button>
+    </div>
+    <div class="picker-list" id="picker-list"></div>
+  </dialog>
+
+  <aside class="toast" id="toast" role="status" aria-live="polite">
+    <strong id="toast-title"></strong>
+    <span id="toast-message"></span>
+  </aside>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

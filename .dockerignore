@@ -1,0 +1,11 @@
+.git
+.github
+.agents
+.codex
+design
+docs
+*.md
+compose.yaml
+.env
+.env.*
+!go.mod
