@@ -153,11 +153,11 @@ func (s *Server) handleSTUNWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var request struct {
-		Event        string    `json:"event"`
-		IP           string    `json:"ip"`
-		Port         int       `json:"port"`
-		PreviousPort int       `json:"previous_port"`
-		UpdatedAt    time.Time `json:"updated_at"`
+		Event        string          `json:"event"`
+		IP           string          `json:"ip"`
+		Port         int             `json:"port"`
+		PreviousPort int             `json:"previous_port"`
+		UpdatedAt    json.RawMessage `json:"updated_at"`
 	}
 	if err := decodeJSONAllowUnknown(w, r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("Webhook JSON 格式错误: %w", err))
@@ -165,14 +165,8 @@ func (s *Server) handleSTUNWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	request.Event = strings.TrimSpace(request.Event)
 	request.IP = strings.TrimSpace(request.IP)
-	if request.Event == "test" {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":    true,
-			"event": "test",
-		})
-		return
-	}
-	if request.Event != "stun_port_changed" {
+	isTest := request.Event == "test"
+	if !isTest && request.Event != "stun_port_changed" {
 		writeError(w, http.StatusBadRequest, errors.New("不支持的 Webhook 事件"))
 		return
 	}
@@ -184,20 +178,34 @@ func (s *Server) handleSTUNWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("STUN 端口无效"))
 		return
 	}
-	if request.UpdatedAt.IsZero() {
-		writeError(w, http.StatusBadRequest, errors.New("updated_at 无效"))
-		return
+	receivedAt := time.Now().UTC()
+	var updatedAt time.Time
+	if isTest {
+		updatedAt = receivedAt
+	} else {
+		if len(request.UpdatedAt) == 0 ||
+			json.Unmarshal(request.UpdatedAt, &updatedAt) != nil ||
+			updatedAt.IsZero() {
+			writeError(
+				w,
+				http.StatusBadRequest,
+				errors.New("updated_at 必须是 RFC3339 时间，例如 2026-07-24T13:37:00.000Z"),
+			)
+			return
+		}
+		updatedAt = updatedAt.UTC()
 	}
 
 	state := transferState{
 		IP:           request.IP,
 		Port:         request.Port,
 		PreviousPort: request.PreviousPort,
-		UpdatedAt:    request.UpdatedAt.UTC(),
-		ReceivedAt:   time.Now().UTC(),
+		UpdatedAt:    updatedAt,
+		ReceivedAt:   receivedAt,
 	}
 	s.transfer.mu.Lock()
-	accepted := s.transfer.state.UpdatedAt.IsZero() ||
+	accepted := isTest ||
+		s.transfer.state.UpdatedAt.IsZero() ||
 		state.UpdatedAt.After(s.transfer.state.UpdatedAt)
 	if accepted {
 		if err := writeJSONFileAtomic(s.transfer.statePath, state, 0o600); err != nil {
@@ -214,10 +222,24 @@ func (s *Server) handleSTUNWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	s.transfer.mu.Unlock()
 
+	message := "STUN 地址已更新"
+	if isTest {
+		message = "Webhook 测试成功，STUN 地址已更新"
+	}
+	if !accepted {
+		message = "通知已接收，现有 STUN 地址时间较新，未覆盖"
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"accepted":  accepted,
-		"endpoint":  endpoint,
-		"updatedAt": current.UpdatedAt,
+		"ok":           true,
+		"event":        request.Event,
+		"message":      message,
+		"accepted":     accepted,
+		"stateUpdated": accepted,
+		"ip":           current.IP,
+		"port":         current.Port,
+		"endpoint":     endpoint,
+		"updatedAt":    current.UpdatedAt,
+		"receivedAt":   current.ReceivedAt,
 	})
 }
 

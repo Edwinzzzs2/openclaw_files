@@ -177,15 +177,46 @@ Content-Type: application/json
 }
 ```
 
-Webhook 配置页面进行连通性测试时，也可以只发送：
+Webhook 配置页面进行连通性测试时可以发送 `event: "test"`。测试数据中的 IP 和端口也会作为真实 STUN 地址立即保存；`updated_at` 可以是测试工具生成的说明文字，服务端会改用收到请求的时间：
 
 ```json
-{"event": "test"}
+{
+  "event": "test",
+  "ip": "112.86.208.141",
+  "port": 29717,
+  "previous_port": 29717,
+  "domains": [],
+  "ids": [],
+  "updated_at": "测试发送时间"
+}
 ```
 
-令牌校验通过后 ClawFiles 会直接返回 HTTP 200，不会修改当前 STUN 地址。
+令牌、IP 和端口校验通过并保存成功后，ClawFiles 返回 HTTP 200：
 
-ClawFiles 固定使用 YAML 中的 `STUN_TRANSFER_DOMAIN`，不会信任 Webhook 里的 `domains`。状态保存在 `/data/.clawfiles/stun.json`，时间更早或重复的通知会被安全忽略。
+```json
+{
+  "ok": true,
+  "event": "test",
+  "message": "Webhook 测试成功，STUN 地址已更新",
+  "accepted": true,
+  "stateUpdated": true,
+  "ip": "112.86.208.141",
+  "port": 29717,
+  "endpoint": "https://clawfiles.dolast.top:29717",
+  "updatedAt": "2026-07-25T01:30:00Z",
+  "receivedAt": "2026-07-25T01:30:00Z"
+}
+```
+
+所有错误统一返回：
+
+```json
+{"error": "具体错误原因"}
+```
+
+Token 错误返回 HTTP 401；JSON、事件、IP、端口或正式端口变更事件的时间错误返回 HTTP 400；STUN 未配置返回 HTTP 404；保存状态失败返回 HTTP 500。
+
+ClawFiles 固定使用 YAML 中的 `STUN_TRANSFER_DOMAIN`，不会信任 Webhook 里的 `domains`。状态保存在 `/data/.clawfiles/stun.json`。正式的 `stun_port_changed` 通知若时间更早或重复会被安全忽略；`test` 通知按你的需求始终用收到请求的时间覆盖当前状态。
 
 STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口，并由它使用 `STUN_TRANSFER_DOMAIN` 的有效证书终止 TLS，再反向代理到 ClawFiles 的 HTTP `:8080`。不要把公网 STUN 端口直接转发到 ClawFiles 的纯 HTTP 端口，否则浏览器无法通过 HTTPS 上传。
 
