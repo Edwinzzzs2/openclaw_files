@@ -15,6 +15,7 @@ export class UploadQueue extends EventTarget {
     super();
     this.items = [];
     this.activeCount = 0;
+    this.lastProgressNotification = -Infinity;
   }
 
   addFiles(files, directory) {
@@ -25,6 +26,7 @@ export class UploadQueue extends EventTarget {
         directory,
         remoteID: "",
         offset: 0,
+        inflightBytes: 0,
         chunkSize: 8 * 1024 * 1024,
         status: "queued",
         speed: 0,
@@ -42,6 +44,8 @@ export class UploadQueue extends EventTarget {
     const item = this.find(localID);
     if (!item || !["uploading", "retrying", "queued"].includes(item.status)) return;
     item.status = "paused";
+    item.inflightBytes = 0;
+    item.speed = 0;
     item.abortController?.abort();
     this.notify();
   }
@@ -59,6 +63,7 @@ export class UploadQueue extends EventTarget {
     const item = this.find(localID);
     if (!item) return;
     item.status = "cancelled";
+    item.inflightBytes = 0;
     item.abortController?.abort();
     this.clearStoredSession(item);
     try {
@@ -128,6 +133,7 @@ export class UploadQueue extends EventTarget {
       const durationSeconds = Math.max((performance.now() - startedAt) / 1000, 0.01);
       item.speed = chunk.size / durationSeconds;
       item.offset = status.offset;
+      item.inflightBytes = 0;
       item.status = "uploading";
       this.notify();
 
@@ -175,14 +181,22 @@ export class UploadQueue extends EventTarget {
         throw new DOMException("Upload stopped", "AbortError");
       }
       item.abortController = new AbortController();
+      const attemptStartedAt = performance.now();
       try {
         return await uploadChunk(
           item.remoteID,
           item.offset,
           chunk,
           item.abortController.signal,
+          (loaded) => {
+            item.inflightBytes = Math.min(loaded, chunk.size);
+            const durationSeconds = Math.max((performance.now() - attemptStartedAt) / 1000, 0.01);
+            item.speed = item.inflightBytes / durationSeconds;
+            this.notifyProgress();
+          },
         );
       } catch (error) {
+        item.inflightBytes = 0;
         if (error?.name === "AbortError") throw error;
         lastError = error;
         if (error instanceof APIError && error.status === 409) {
@@ -202,6 +216,7 @@ export class UploadQueue extends EventTarget {
 
   finish(item, file) {
     item.offset = item.file.size;
+    item.inflightBytes = 0;
     item.status = "complete";
     item.result = file;
     item.speed = 0;
@@ -223,6 +238,13 @@ export class UploadQueue extends EventTarget {
 
   clearStoredSession(item) {
     localStorage.removeItem(this.storageKey(item));
+  }
+
+  notifyProgress() {
+    const now = performance.now();
+    if (now - this.lastProgressNotification < 100) return;
+    this.lastProgressNotification = now;
+    this.notify();
   }
 }
 

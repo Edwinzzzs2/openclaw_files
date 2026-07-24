@@ -372,9 +372,13 @@ function renderUploads() {
 }
 
 function uploadItemTemplate(item) {
+  const displayedOffset = Math.min(
+    item.file.size,
+    item.offset + (item.inflightBytes || 0),
+  );
   const percent = item.file.size === 0
     ? 100
-    : Math.min(100, Math.round((item.offset / item.file.size) * 100));
+    : Math.min(100, Math.round((displayedOffset / item.file.size) * 100));
   const statusText = uploadStatusText(item);
   const speed = item.speed > 0 ? `${formatBytes(item.speed)}/s` : "";
   const error = item.error ? `<span>${escapeHTML(item.error)}</span>` : "";
@@ -410,7 +414,7 @@ function uploadItemTemplate(item) {
         </div>
         <div class="upload-meta">
           <span>${escapeHTML(statusText)}</span>
-          <span>${formatBytes(item.offset)} / ${formatBytes(item.file.size)}</span>
+          <span>${formatBytes(displayedOffset)} / ${formatBytes(item.file.size)}</span>
           ${speed ? `<span>${speed}</span>` : ""}
           ${error}
           ${resultPath}

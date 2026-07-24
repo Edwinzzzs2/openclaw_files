@@ -90,16 +90,60 @@ export function getUpload(id) {
   return apiFetch(`/api/uploads/${encodeURIComponent(id)}`);
 }
 
-export function uploadChunk(id, offset, chunk, signal) {
-  return apiFetch(`/api/uploads/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/offset+octet-stream",
-      "Upload-Offset": String(offset),
-    },
-    body: chunk,
-    signal,
+export function uploadChunk(id, offset, chunk, signal, onProgress) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    const abortRequest = () => request.abort();
+    const cleanup = () => signal?.removeEventListener("abort", abortRequest);
+
+    request.open("PATCH", `/api/uploads/${encodeURIComponent(id)}`);
+    request.responseType = "text";
+    request.withCredentials = true;
+    request.setRequestHeader("Accept", "application/json");
+    request.setRequestHeader("Content-Type", "application/offset+octet-stream");
+    request.setRequestHeader("Upload-Offset", String(offset));
+    request.setRequestHeader("X-ClawFiles-Request", "1");
+
+    request.upload.addEventListener("progress", (event) => {
+      onProgress?.(event.loaded, event.total || chunk.size);
+    });
+    request.addEventListener("load", () => {
+      cleanup();
+      const payload = parseJSONResponse(request.responseText);
+      if (request.status === 401) {
+        window.dispatchEvent(new CustomEvent("clawfiles:auth-required"));
+      }
+      if (request.status < 200 || request.status >= 300) {
+        reject(new APIError(payload?.error || `请求失败 (${request.status})`, request.status));
+        return;
+      }
+      resolve(payload);
+    });
+    request.addEventListener("error", () => {
+      cleanup();
+      reject(new APIError("网络连接失败", 0));
+    });
+    request.addEventListener("abort", () => {
+      cleanup();
+      reject(new DOMException("Upload stopped", "AbortError"));
+    });
+
+    if (signal?.aborted) {
+      reject(new DOMException("Upload stopped", "AbortError"));
+      return;
+    }
+    signal?.addEventListener("abort", abortRequest, { once: true });
+    request.send(chunk);
   });
+}
+
+function parseJSONResponse(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 export async function cancelUpload(id) {

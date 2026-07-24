@@ -196,7 +196,7 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("上传偏移量无效"))
 		return
 	}
-	if r.ContentLength <= 0 {
+	if r.ContentLength == 0 {
 		writeError(w, http.StatusLengthRequired, errors.New("上传分块不能为空"))
 		return
 	}
@@ -223,7 +223,8 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("上传任务已经完成"))
 		return
 	}
-	if r.ContentLength > s.uploads.chunkSize || r.ContentLength > remaining {
+	maxChunkLength := min(s.uploads.chunkSize, remaining)
+	if r.ContentLength > maxChunkLength {
 		writeError(w, http.StatusRequestEntityTooLarge, errors.New("上传分块超过允许大小"))
 		return
 	}
@@ -238,10 +239,15 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errors.New("无法定位上传偏移量"))
 		return
 	}
-	written, copyErr := io.Copy(file, http.MaxBytesReader(w, r.Body, r.ContentLength))
+	written, copyErr := io.Copy(file, io.LimitReader(r.Body, maxChunkLength+1))
 	syncErr := file.Sync()
 	closeErr := file.Close()
-	if copyErr != nil || written != r.ContentLength || syncErr != nil || closeErr != nil {
+	if written > maxChunkLength {
+		_ = os.Truncate(s.uploads.partPath(id), metadata.Offset)
+		writeError(w, http.StatusRequestEntityTooLarge, errors.New("上传分块超过允许大小"))
+		return
+	}
+	if copyErr != nil || written == 0 || (r.ContentLength > 0 && written != r.ContentLength) || syncErr != nil || closeErr != nil {
 		_ = os.Truncate(s.uploads.partPath(id), metadata.Offset)
 		writeError(w, http.StatusBadRequest, errors.New("上传分块不完整，请重试"))
 		return
