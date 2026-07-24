@@ -542,11 +542,54 @@ function renderUploads() {
   const items = uploadQueue.items;
   elements.uploadsEmpty.hidden = items.length > 0;
   elements.clearCompletedButton.hidden = !items.some((item) => item.status === "complete");
-  elements.uploadList.innerHTML = items.map(uploadItemTemplate).join("");
+  const currentIDs = Array.from(
+    elements.uploadList.children,
+    (element) => element.dataset.uploadId,
+  );
+  const nextIDs = items.map((item) => item.localID);
+  const queueChanged = currentIDs.length !== nextIDs.length ||
+    currentIDs.some((id, index) => id !== nextIDs[index]);
+  if (queueChanged) {
+    elements.uploadList.innerHTML = items.map(uploadItemTemplate).join("");
+  }
+  Array.from(elements.uploadList.children).forEach((element, index) => {
+    updateUploadItem(element, items[index]);
+  });
 }
 
 function uploadItemTemplate(item) {
+  const type = fileType({ name: item.file.name, type: "file", mime: item.file.type });
+
+  return `
+    <article class="upload-item" data-upload-id="${item.localID}">
+      <div class="type-block ${escapeHTML(type.className)}" title="${escapeHTML(type.label)}" aria-hidden="true">${fileIconSVG(type.icon)}</div>
+      <div class="upload-item-main">
+        <div class="upload-item-title">
+          <strong>${escapeHTML(item.file.name)}</strong>
+          <span class="upload-percent" data-upload-field="percent">0%</span>
+        </div>
+        <div class="progress" role="progressbar" aria-label="${escapeHTML(item.file.name)} 上传进度"
+          aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+          <span data-upload-progress></span>
+        </div>
+        <div class="upload-meta">
+          <span data-upload-field="status"></span>
+          <span data-upload-field="uploaded"></span>
+          <span data-upload-field="remaining"></span>
+          <span data-upload-field="route" hidden></span>
+          <span data-upload-field="speed" hidden></span>
+          <span data-upload-field="error" hidden></span>
+          <span data-upload-field="result" hidden></span>
+        </div>
+      </div>
+      <div class="upload-item-actions"></div>
+    </article>`;
+}
+
+function updateUploadItem(element, item) {
+  if (!element || !item) return;
   const confirmedOffset = Math.min(item.file.size, item.offset);
+  const remainingBytes = Math.max(0, item.file.size - confirmedOffset);
   const percent = item.status === "complete" || item.file.size === 0
     ? 100
     : Math.min(
@@ -554,21 +597,58 @@ function uploadItemTemplate(item) {
         Math.floor((confirmedOffset / item.file.size) * 1000) / 10,
       );
   const percentLabel = Number.isInteger(percent) ? String(percent) : percent.toFixed(1);
-  const chunkFullySent = item.inflightBytes > 0 &&
+  const chunkFullySubmitted = item.inflightBytes > 0 &&
     item.inflightBytes >= Math.min(item.chunkSize, item.file.size - item.offset);
   const statusText = item.status === "uploading" && item.inflightBytes > 0
-    ? chunkFullySent ? "等待服务器确认" : "正在提交分片"
+    ? chunkFullySubmitted ? "等待服务器确认" : "正在上传"
     : uploadStatusText(item);
-  const speed = item.speed > 0 ? `${formatBytes(item.speed)}/s` : "";
   const route = item.status !== "complete" && item.route === "stun"
     ? "STUN 高速通道"
     : "";
-  const error = item.error ? `<span>${escapeHTML(item.error)}</span>` : "";
-  const resultPath = item.result?.serverPath
-    ? `<span>${escapeHTML(item.result.serverPath)}</span>`
-    : "";
-  const type = fileType({ name: item.file.name, type: "file", mime: item.file.type });
+  const speed = item.speed > 0 ? `${formatBytes(item.speed)}/s` : "";
 
+  element.classList.toggle("error", item.status === "error");
+  setUploadField(element, "percent", `${percentLabel}%`);
+  setUploadField(
+    element,
+    "uploaded",
+    `已上传 ${formatBytes(confirmedOffset)} / ${formatBytes(item.file.size)}`,
+  );
+  setUploadField(element, "remaining", `剩余 ${formatBytes(remainingBytes)}`);
+  setUploadField(element, "status", statusText);
+  setUploadField(element, "route", route);
+  setUploadField(element, "speed", speed);
+  setUploadField(element, "error", item.error || "");
+  setUploadField(element, "result", item.result?.serverPath || "");
+
+  const progress = element.querySelector(".progress");
+  if (progress?.getAttribute("aria-valuenow") !== String(percent)) {
+    progress.setAttribute("aria-valuenow", String(percent));
+  }
+  const progressFill = element.querySelector("[data-upload-progress]");
+  if (progressFill && progressFill.style.width !== `${percent}%`) {
+    progressFill.style.width = `${percent}%`;
+  }
+
+  const controlsKey = [
+    item.status,
+    item.result?.serverPath ? "path" : "",
+  ].join(":");
+  const controls = element.querySelector(".upload-item-actions");
+  if (controls && controls.dataset.controlsKey !== controlsKey) {
+    controls.innerHTML = uploadControlsTemplate(item);
+    controls.dataset.controlsKey = controlsKey;
+  }
+}
+
+function setUploadField(element, name, value) {
+  const field = element.querySelector(`[data-upload-field="${name}"]`);
+  if (!field) return;
+  if (field.textContent !== value) field.textContent = value;
+  if (field.hidden !== !value) field.hidden = !value;
+}
+
+function uploadControlsTemplate(item) {
   let controls = "";
   if (["uploading", "retrying", "queued"].includes(item.status)) {
     controls += `<button class="action-button" type="button" data-upload-action="pause" data-id="${item.localID}">暂停</button>`;
@@ -582,31 +662,7 @@ function uploadItemTemplate(item) {
   if (item.status !== "complete") {
     controls += `<button class="action-button danger" type="button" data-upload-action="cancel" data-id="${item.localID}">取消</button>`;
   }
-
-  return `
-    <article class="upload-item ${item.status === "error" ? "error" : ""}">
-      <div class="type-block ${escapeHTML(type.className)}" title="${escapeHTML(type.label)}" aria-hidden="true">${fileIconSVG(type.icon)}</div>
-      <div class="upload-item-main">
-        <div class="upload-item-title">
-          <strong>${escapeHTML(item.file.name)}</strong>
-          <span class="upload-percent">${percentLabel}%</span>
-        </div>
-        <div class="progress" role="progressbar" aria-label="${escapeHTML(item.file.name)} 上传进度"
-          aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">
-          <span style="width:${percent}%"></span>
-        </div>
-        <div class="upload-meta">
-          <span>${escapeHTML(statusText)}</span>
-          <span>已确认 ${formatBytes(confirmedOffset)} / ${formatBytes(item.file.size)}</span>
-          ${item.inflightBytes > 0 ? `<span>浏览器已提交 ${formatBytes(item.inflightBytes)}</span>` : ""}
-          ${route ? `<span>${route}</span>` : ""}
-          ${speed ? `<span>${speed}</span>` : ""}
-          ${error}
-          ${resultPath}
-        </div>
-      </div>
-      <div class="upload-item-actions">${controls}</div>
-    </article>`;
+  return controls;
 }
 
 function handleUploadAction(event) {
