@@ -18,9 +18,21 @@ import (
 )
 
 const (
-	metadataDirectoryName = ".clawfiles"
-	uploadExpiry          = 7 * 24 * time.Hour
+	metadataDirectoryName      = ".clawfiles"
+	uploadExpiry               = 7 * 24 * time.Hour
+	uploadChunkReadIdleTimeout = 30 * time.Second
 )
+
+type uploadBodyDeadlineReader struct {
+	body       io.Reader
+	controller *http.ResponseController
+	timeout    time.Duration
+}
+
+func (r *uploadBodyDeadlineReader) Read(buffer []byte) (int, error) {
+	_ = r.controller.SetReadDeadline(time.Now().Add(r.timeout))
+	return r.body.Read(buffer)
+}
 
 type uploadMetadata struct {
 	ID           string    `json:"id"`
@@ -256,13 +268,36 @@ func (s *Server) handlePatchUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errors.New("无法定位上传偏移量"))
 		return
 	}
+	responseController := http.NewResponseController(w)
+	deadlineSet := responseController.SetReadDeadline(
+		time.Now().Add(uploadChunkReadIdleTimeout),
+	) == nil
+	bodyReader := io.Reader(r.Body)
+	if deadlineSet {
+		bodyReader = &uploadBodyDeadlineReader{
+			body:       r.Body,
+			controller: responseController,
+			timeout:    uploadChunkReadIdleTimeout,
+		}
+	}
 	// Stop as soon as the declared chunk is complete. Some mobile WebViews and
 	// reverse proxies delay the final request-body EOF even after all bytes have
 	// arrived, which otherwise leaves a completed chunk waiting indefinitely.
-	written, copyErr := io.CopyN(file, r.Body, declaredChunkLength)
+	written, copyErr := io.CopyN(file, bodyReader, declaredChunkLength)
+	if deadlineSet {
+		_ = responseController.SetReadDeadline(time.Time{})
+	}
 	syncErr := file.Sync()
 	closeErr := file.Close()
 	if copyErr != nil || written != declaredChunkLength || syncErr != nil || closeErr != nil {
+		log.Printf(
+			"upload chunk failed id=%s offset=%d declared=%d written=%d error=%v",
+			id,
+			metadata.Offset,
+			declaredChunkLength,
+			written,
+			copyErr,
+		)
 		_ = os.Truncate(s.uploads.partPath(id), metadata.Offset)
 		writeError(w, http.StatusBadRequest, errors.New("上传分块不完整，请重试"))
 		return

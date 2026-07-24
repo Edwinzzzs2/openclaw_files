@@ -549,11 +549,15 @@ function uploadItemTemplate(item) {
   const confirmedOffset = Math.min(item.file.size, item.offset);
   const percent = item.status === "complete" || item.file.size === 0
     ? 100
-    : Math.min(99, Math.floor((confirmedOffset / item.file.size) * 100));
+    : Math.min(
+        99.9,
+        Math.floor((confirmedOffset / item.file.size) * 1000) / 10,
+      );
+  const percentLabel = Number.isInteger(percent) ? String(percent) : percent.toFixed(1);
   const chunkFullySent = item.inflightBytes > 0 &&
     item.inflightBytes >= Math.min(item.chunkSize, item.file.size - item.offset);
   const statusText = item.status === "uploading" && item.inflightBytes > 0
-    ? chunkFullySent ? "等待服务器确认" : "正在发送分片"
+    ? chunkFullySent ? "等待服务器确认" : "正在提交分片"
     : uploadStatusText(item);
   const speed = item.speed > 0 ? `${formatBytes(item.speed)}/s` : "";
   const route = item.status !== "complete" && item.route === "stun"
@@ -585,16 +589,16 @@ function uploadItemTemplate(item) {
       <div class="upload-item-main">
         <div class="upload-item-title">
           <strong>${escapeHTML(item.file.name)}</strong>
-          <span class="upload-percent">${percent}%</span>
+          <span class="upload-percent">${percentLabel}%</span>
         </div>
         <div class="progress" role="progressbar" aria-label="${escapeHTML(item.file.name)} 上传进度"
           aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">
-          <span style="transform:scaleX(${percent / 100})"></span>
+          <span style="width:${percent}%"></span>
         </div>
         <div class="upload-meta">
           <span>${escapeHTML(statusText)}</span>
           <span>已确认 ${formatBytes(confirmedOffset)} / ${formatBytes(item.file.size)}</span>
-          ${item.inflightBytes > 0 ? `<span>本分片已发送 ${formatBytes(item.inflightBytes)}</span>` : ""}
+          ${item.inflightBytes > 0 ? `<span>浏览器已提交 ${formatBytes(item.inflightBytes)}</span>` : ""}
           ${route ? `<span>${route}</span>` : ""}
           ${speed ? `<span>${speed}</span>` : ""}
           ${error}

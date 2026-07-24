@@ -7,8 +7,13 @@ import {
   uploadChunk,
 } from "./api.js";
 
-const MAX_CONCURRENT_UPLOADS = 2;
-const MOBILE_SAFE_CHUNK_SIZE = 2 * 1024 * 1024;
+const IOS_DEVICE = isIOSDevice();
+const MAX_CONCURRENT_UPLOADS = IOS_DEVICE ? 1 : 2;
+const DEFAULT_SAFE_CHUNK_SIZE = 2 * 1024 * 1024;
+const IOS_SAFE_CHUNK_SIZE = 128 * 1024;
+const CLIENT_SAFE_CHUNK_SIZE = IOS_DEVICE
+  ? IOS_SAFE_CHUNK_SIZE
+  : DEFAULT_SAFE_CHUNK_SIZE;
 const RETRY_DELAYS = [1000, 2500, 5000];
 let nextLocalID = 1;
 
@@ -29,7 +34,7 @@ export class UploadQueue extends EventTarget {
         remoteID: "",
         offset: 0,
         inflightBytes: 0,
-        chunkSize: MOBILE_SAFE_CHUNK_SIZE,
+        chunkSize: CLIENT_SAFE_CHUNK_SIZE,
         transferToken: "",
         transferEndpoint: "",
         route: "stable",
@@ -123,7 +128,7 @@ export class UploadQueue extends EventTarget {
     let status = await this.restoreOrCreate(item);
     item.remoteID = status.id;
     item.offset = status.offset;
-    item.chunkSize = Math.min(status.chunkSize, MOBILE_SAFE_CHUNK_SIZE);
+    item.chunkSize = Math.min(status.chunkSize, CLIENT_SAFE_CHUNK_SIZE);
     item.transferToken = status.transferToken || "";
     await this.refreshTransferRoute(item);
     if (status.completed) {
@@ -134,11 +139,15 @@ export class UploadQueue extends EventTarget {
     while (item.offset < item.file.size) {
       if (item.status !== "uploading" && item.status !== "retrying") return;
       const end = Math.min(item.offset + item.chunkSize, item.file.size);
-      const chunk = item.file.slice(item.offset, end);
+      const sourceChunk = item.file.slice(item.offset, end);
+      const chunk = IOS_DEVICE
+        ? await materializeChunk(sourceChunk)
+        : sourceChunk;
+      const chunkLength = end - item.offset;
       const startedAt = performance.now();
-      status = await this.sendWithRetry(item, chunk);
+      status = await this.sendWithRetry(item, chunk, chunkLength);
       const durationSeconds = Math.max((performance.now() - startedAt) / 1000, 0.01);
-      item.speed = chunk.size / durationSeconds;
+      item.speed = chunkLength / durationSeconds;
       item.offset = status.offset;
       item.inflightBytes = 0;
       item.status = "uploading";
@@ -185,8 +194,10 @@ export class UploadQueue extends EventTarget {
   }
 
   async refreshTransferRoute(item) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      const transfer = await loadTransferStatus();
+      const transfer = await loadTransferStatus({ signal: controller.signal });
       if (transfer.available && transfer.baseUrl && item.transferToken) {
         item.transferEndpoint = transfer.baseUrl;
         item.route = "stun";
@@ -194,20 +205,21 @@ export class UploadQueue extends EventTarget {
       }
     } catch {
       // The stable origin remains usable when transfer discovery fails.
+    } finally {
+      clearTimeout(timeout);
     }
     item.transferEndpoint = "";
     item.route = "stable";
     return false;
   }
 
-  async sendWithRetry(item, chunk) {
+  async sendWithRetry(item, chunk, chunkLength) {
     let lastError;
     for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
       if (item.status === "paused" || item.status === "cancelled") {
         throw new DOMException("Upload stopped", "AbortError");
       }
       item.abortController = new AbortController();
-      const attemptStartedAt = performance.now();
       try {
         return await uploadChunk(
           item.remoteID,
@@ -215,9 +227,7 @@ export class UploadQueue extends EventTarget {
           chunk,
           item.abortController.signal,
           (loaded) => {
-            item.inflightBytes = Math.min(loaded, chunk.size);
-            const durationSeconds = Math.max((performance.now() - attemptStartedAt) / 1000, 0.01);
-            item.speed = item.inflightBytes / durationSeconds;
+            item.inflightBytes = Math.min(loaded, chunkLength);
             this.notifyProgress();
           },
           {
@@ -292,4 +302,22 @@ export class UploadQueue extends EventTarget {
 
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isIOSDevice() {
+  const userAgent = navigator.userAgent || "";
+  return /iPad|iPhone|iPod/.test(userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+async function materializeChunk(blob) {
+  if (typeof blob.arrayBuffer === "function") {
+    return blob.arrayBuffer();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", () => reject(reader.error || new Error("无法读取文件分片")));
+    reader.readAsArrayBuffer(blob);
+  });
 }

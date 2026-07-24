@@ -906,11 +906,10 @@ code {
 
 .progress span {
   display: block;
-  width: 100%;
+  width: 0;
   height: 100%;
   background: var(--accent);
-  transform-origin: left center;
-  transition: transform 180ms ease;
+  transition: width 180ms ease;
 }
 
 .upload-item.error .progress span {

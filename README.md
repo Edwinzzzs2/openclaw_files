@@ -24,8 +24,8 @@ ClawFiles 是一个面向手机使用的单目录文件投递器。它把服务�
 
 - 多文件上传队列
 - 每个文件独立显示进度和速度
-- 默认使用 2 MiB 分块，兼容手机 PWA 和移动网络
-- 同时上传两个文件
+- 桌面端最多使用 2 MiB 分块；iPhone/iPad 使用 128 KiB 内存分块，避开 PWA 文件流卡住
+- 桌面端同时上传两个文件；iPhone/iPad 串行上传以降低 WebKit 连接压力
 - 暂停、继续、取消和失败重试
 - 单个分块 20 秒没有进度时自动中止并续传
 - STUN 高速地址不可用时自动回到当前 FRP 域名
@@ -132,7 +132,7 @@ server {
 }
 ```
 
-默认上传分块为 2 MiB，因此反向代理只需要允许略大于单个分块的请求，而不需要允许单个 100 GB 请求。
+网页端最大上传分块为 2 MiB，因此反向代理只需要允许略大于单个分块的请求，而不需要允许单个 100 GB 请求。iPhone/iPad 会自动改用 128 KiB 分块。
 
 ## STUN 高速上传与下载
 
@@ -193,7 +193,7 @@ STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口�
 | `APP_PASSWORD` | 空 | 登录密码。为空时关闭鉴权，不建议公网使用 |
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设置为 `true` |
 | `MAX_UPLOAD_SIZE` | `107374182400` | 单文件上限，单位为字节，默认 100 GiB |
-| `UPLOAD_CHUNK_SIZE` | `2097152` | 服务端允许的分块大小，单位为字节，允许 1-64 MiB；网页端最多使用 2 MiB |
+| `UPLOAD_CHUNK_SIZE` | `2097152` | 服务端允许的分块上限，单位为字节，允许 1-64 MiB；网页端最多使用 2 MiB，iPhone/iPad 自动使用 128 KiB |
 | `STUN_TRANSFER_DOMAIN` | 空 | STUN 高速通道域名，只填写主机名 |
 | `STUN_WEBHOOK_TOKEN` | 空 | 接收端口变化通知的 Bearer 令牌，至少 24 位 |
 | `TRANSFER_SIGNING_KEY` | 空 | 跨域上传和下载令牌的签名密钥，至少 32 位 |

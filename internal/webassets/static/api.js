@@ -64,8 +64,8 @@ export function loadConfig() {
   return apiFetch("/api/config");
 }
 
-export function loadTransferStatus() {
-  return apiFetch("/api/transfer");
+export function loadTransferStatus(options = {}) {
+  return apiFetch("/api/transfer", options);
 }
 
 export function listFiles(path = "") {
@@ -111,10 +111,15 @@ export function getUpload(id) {
 export function uploadChunk(id, offset, chunk, signal, onProgress, options = {}) {
   return new Promise((resolve, reject) => {
     const noProgressTimeout = 20_000;
+    const requestTimeout = 60_000;
     const request = new XMLHttpRequest();
     const baseURL = String(options.baseURL || "").replace(/\/+$/, "");
+    const chunkLength = chunk instanceof ArrayBuffer
+      ? chunk.byteLength
+      : chunk.size;
     let watchdog = 0;
     let timedOut = false;
+    let lastLoaded = 0;
     const abortRequest = () => request.abort();
     const cleanup = () => {
       clearTimeout(watchdog);
@@ -130,19 +135,23 @@ export function uploadChunk(id, offset, chunk, signal, onProgress, options = {})
 
     request.open("PATCH", `${baseURL}/api/uploads/${encodeURIComponent(id)}`);
     request.responseType = "text";
+    request.timeout = requestTimeout;
     request.withCredentials = !options.transferToken;
     request.setRequestHeader("Accept", "application/json");
     request.setRequestHeader("Content-Type", "application/offset+octet-stream");
     request.setRequestHeader("Upload-Offset", String(offset));
-    request.setRequestHeader("Upload-Chunk-Length", String(chunk.size));
+    request.setRequestHeader("Upload-Chunk-Length", String(chunkLength));
     request.setRequestHeader("X-ClawFiles-Request", "1");
     if (options.transferToken) {
       request.setRequestHeader("X-ClawFiles-Transfer-Token", options.transferToken);
     }
 
     request.upload.addEventListener("progress", (event) => {
+      const loaded = Math.min(event.loaded, chunkLength);
+      if (loaded <= lastLoaded) return;
+      lastLoaded = loaded;
       armWatchdog();
-      onProgress?.(event.loaded, event.total || chunk.size);
+      onProgress?.(loaded, event.total || chunkLength);
     });
     request.addEventListener("load", () => {
       cleanup();
@@ -159,6 +168,11 @@ export function uploadChunk(id, offset, chunk, signal, onProgress, options = {})
     request.addEventListener("error", () => {
       cleanup();
       reject(new APIError("网络连接失败", 0));
+    });
+    request.addEventListener("timeout", () => {
+      cleanup();
+      timedOut = true;
+      reject(new APIError("上传请求超时，正在重试", 0));
     });
     request.addEventListener("abort", () => {
       cleanup();
