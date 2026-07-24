@@ -1,4 +1,4 @@
-const CACHE_NAME = "clawfiles-shell-v9";
+const CACHE_NAME = "clawfiles-shell-v10";
 const APP_SHELL = [
   "/",
   "/index.html",

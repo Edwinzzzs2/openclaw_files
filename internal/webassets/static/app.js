@@ -49,8 +49,6 @@ const elements = {
   selectAllCheckbox: document.querySelector("#select-all-checkbox"),
   selectionBar: document.querySelector("#selection-bar"),
   selectionCount: document.querySelector("#selection-count"),
-  selectionSelectAll: document.querySelector("#selection-select-all"),
-  selectionCopy: document.querySelector("#selection-copy"),
   selectionDownload: document.querySelector("#selection-download"),
   selectionDelete: document.querySelector("#selection-delete"),
   selectionClear: document.querySelector("#selection-clear"),
@@ -137,8 +135,6 @@ function bindEvents() {
   elements.breadcrumbs.addEventListener("click", handleBreadcrumbClick);
   elements.pickerList.addEventListener("click", handlePickerClick);
   elements.selectAllCheckbox.addEventListener("change", toggleVisibleSelection);
-  elements.selectionSelectAll.addEventListener("click", toggleVisibleSelection);
-  elements.selectionCopy.addEventListener("click", copySelectedPaths);
   elements.selectionDownload.addEventListener("click", downloadSelected);
   elements.selectionDelete.addEventListener("click", openDeleteDialog);
   elements.selectionClear.addEventListener("click", clearSelection);
@@ -290,7 +286,9 @@ function renderFiles() {
 
   elements.entryCount.textContent = `${entries.length} 项`;
   elements.filesEmpty.hidden = entries.length > 0;
-  elements.fileList.innerHTML = entries.map(fileRowTemplate).join("");
+  elements.fileList.innerHTML = entries
+    .map((entry) => fileRowTemplate(entry))
+    .join("");
   renderSelectionBar();
 }
 
@@ -401,7 +399,6 @@ function renderSelectionBar() {
 
   elements.selectionBar.hidden = selected.length === 0 || state.view !== "files";
   elements.selectionCount.textContent = `已选择 ${selected.length} 项`;
-  elements.selectionSelectAll.textContent = allVisibleSelected ? "取消全选" : "全选";
   elements.selectAllCheckbox.checked = allVisibleSelected;
   elements.selectAllCheckbox.indeterminate = visibleSelectedCount > 0 && !allVisibleSelected;
   document.body.classList.toggle(
@@ -427,15 +424,6 @@ function toggleVisibleSelection() {
 function clearSelection() {
   state.selectedPaths.clear();
   renderFiles();
-}
-
-async function copySelectedPaths() {
-  const entries = selectedEntries();
-  if (!entries.length) return;
-  await copyText(
-    entries.map((entry) => entry.serverPath).join("\n"),
-    `已复制 ${entries.length} 条服务器路径`,
-  );
 }
 
 async function downloadSelected() {
