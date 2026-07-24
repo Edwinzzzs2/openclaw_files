@@ -157,12 +157,19 @@ func (s *Server) handleSTUNWebhook(w http.ResponseWriter, r *http.Request) {
 		IP           string    `json:"ip"`
 		Port         int       `json:"port"`
 		PreviousPort int       `json:"previous_port"`
-		Domains      []string  `json:"domains"`
-		IDs          []string  `json:"ids"`
 		UpdatedAt    time.Time `json:"updated_at"`
 	}
-	if err := decodeJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, errors.New("Webhook 数据格式错误"))
+	if err := decodeJSONAllowUnknown(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("Webhook JSON 格式错误: %w", err))
+		return
+	}
+	request.Event = strings.TrimSpace(request.Event)
+	request.IP = strings.TrimSpace(request.IP)
+	if request.Event == "test" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":    true,
+			"event": "test",
+		})
 		return
 	}
 	if request.Event != "stun_port_changed" {

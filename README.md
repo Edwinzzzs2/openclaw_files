@@ -177,6 +177,14 @@ Content-Type: application/json
 }
 ```
 
+Webhook 配置页面进行连通性测试时，也可以只发送：
+
+```json
+{"event": "test"}
+```
+
+令牌校验通过后 ClawFiles 会直接返回 HTTP 200，不会修改当前 STUN 地址。
+
 ClawFiles 固定使用 YAML 中的 `STUN_TRANSFER_DOMAIN`，不会信任 Webhook 里的 `domains`。状态保存在 `/data/.clawfiles/stun.json`，时间更早或重复的通知会被安全忽略。
 
 STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口，并由它使用 `STUN_TRANSFER_DOMAIN` 的有效证书终止 TLS，再反向代理到 ClawFiles 的 HTTP `:8080`。不要把公网 STUN 端口直接转发到 ClawFiles 的纯 HTTP 端口，否则浏览器无法通过 HTTPS 上传。

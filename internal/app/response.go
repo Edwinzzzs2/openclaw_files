@@ -29,9 +29,24 @@ func writeError(w http.ResponseWriter, status int, err error) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	return decodeJSONValue(w, r, target, true)
+}
+
+func decodeJSONAllowUnknown(w http.ResponseWriter, r *http.Request, target any) error {
+	return decodeJSONValue(w, r, target, false)
+}
+
+func decodeJSONValue(
+	w http.ResponseWriter,
+	r *http.Request,
+	target any,
+	rejectUnknown bool,
+) error {
 	reader := http.MaxBytesReader(w, r.Body, maxJSONBody)
 	decoder := json.NewDecoder(reader)
-	decoder.DisallowUnknownFields()
+	if rejectUnknown {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
