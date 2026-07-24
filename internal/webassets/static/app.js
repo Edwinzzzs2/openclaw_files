@@ -578,6 +578,7 @@ function uploadItemTemplate(item) {
           <span data-upload-field="remaining"></span>
           <span data-upload-field="route" hidden></span>
           <span data-upload-field="speed" hidden></span>
+          <span data-upload-field="eta" hidden></span>
           <span data-upload-field="error" hidden></span>
           <span data-upload-field="result" hidden></span>
         </div>
@@ -597,15 +598,18 @@ function updateUploadItem(element, item) {
         Math.floor((confirmedOffset / item.file.size) * 1000) / 10,
       );
   const percentLabel = Number.isInteger(percent) ? String(percent) : percent.toFixed(1);
-  const chunkFullySubmitted = item.inflightBytes > 0 &&
-    item.inflightBytes >= Math.min(item.chunkSize, item.file.size - item.offset);
-  const statusText = item.status === "uploading" && item.inflightBytes > 0
-    ? chunkFullySubmitted ? "等待服务器确认" : "正在上传"
-    : uploadStatusText(item);
+  const statusText = uploadStatusText(item);
   const route = item.status !== "complete" && item.route === "stun"
     ? "STUN 高速通道"
     : "";
-  const speed = item.speed > 0 ? `${formatBytes(item.speed)}/s` : "";
+  const timingActive = ["uploading", "retrying"].includes(item.status) &&
+    remainingBytes > 0;
+  const speed = item.speed > 0
+    ? `${formatBytes(item.speed)}/s`
+    : timingActive ? "正在计算速度" : "";
+  const eta = item.speed > 0 && timingActive
+    ? `预计剩余 ${formatRemainingTime(remainingBytes / item.speed)}`
+    : timingActive ? "预计剩余时间计算中" : "";
 
   element.classList.toggle("error", item.status === "error");
   setUploadField(element, "percent", `${percentLabel}%`);
@@ -618,6 +622,7 @@ function updateUploadItem(element, item) {
   setUploadField(element, "status", statusText);
   setUploadField(element, "route", route);
   setUploadField(element, "speed", speed);
+  setUploadField(element, "eta", eta);
   setUploadField(element, "error", item.error || "");
   setUploadField(element, "result", item.result?.serverPath || "");
 
@@ -995,6 +1000,23 @@ function formatBytes(bytes) {
   }
   const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
   return `${value.toFixed(precision)} ${unit}`;
+}
+
+function formatRemainingTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "不到 1 秒";
+  const roundedSeconds = Math.max(1, Math.ceil(seconds));
+  if (roundedSeconds < 60) return `${roundedSeconds} 秒`;
+  if (roundedSeconds < 5400) return `${Math.ceil(roundedSeconds / 60)} 分钟`;
+  if (roundedSeconds < 172800) {
+    const totalMinutes = Math.ceil(roundedSeconds / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes > 0 ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`;
+  }
+  const totalHours = Math.ceil(roundedSeconds / 3600);
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  return hours > 0 ? `${days} 天 ${hours} 小时` : `${days} 天`;
 }
 
 function formatDate(value) {

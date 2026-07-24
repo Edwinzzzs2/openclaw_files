@@ -23,6 +23,7 @@ export class UploadQueue extends EventTarget {
     this.items = [];
     this.activeCount = 0;
     this.lastProgressNotification = -Infinity;
+    this.progressNotificationTimer = 0;
   }
 
   addFiles(files, directory) {
@@ -147,12 +148,15 @@ export class UploadQueue extends EventTarget {
       const startedAt = performance.now();
       status = await this.sendWithRetry(item, chunk, chunkLength);
       const durationSeconds = Math.max((performance.now() - startedAt) / 1000, 0.01);
-      item.speed = chunkLength / durationSeconds;
+      const measuredSpeed = chunkLength / durationSeconds;
+      item.speed = item.speed > 0
+        ? (item.speed * 0.78) + (measuredSpeed * 0.22)
+        : measuredSpeed;
       item.offset = status.offset;
       item.inflightBytes = 0;
       item.status = "uploading";
       item.error = "";
-      this.notify();
+      this.notifyProgress();
 
       if (status.completed) {
         this.finish(item, status.file);
@@ -228,7 +232,6 @@ export class UploadQueue extends EventTarget {
           item.abortController.signal,
           (loaded) => {
             item.inflightBytes = Math.min(loaded, chunkLength);
-            this.notifyProgress();
           },
           {
             baseURL: item.transferEndpoint,
@@ -294,9 +297,20 @@ export class UploadQueue extends EventTarget {
 
   notifyProgress() {
     const now = performance.now();
-    if (now - this.lastProgressNotification < 100) return;
-    this.lastProgressNotification = now;
-    this.notify();
+    const elapsed = now - this.lastProgressNotification;
+    if (elapsed >= 250) {
+      clearTimeout(this.progressNotificationTimer);
+      this.progressNotificationTimer = 0;
+      this.lastProgressNotification = now;
+      this.notify();
+      return;
+    }
+    if (this.progressNotificationTimer) return;
+    this.progressNotificationTimer = setTimeout(() => {
+      this.progressNotificationTimer = 0;
+      this.lastProgressNotification = performance.now();
+      this.notify();
+    }, 250 - elapsed);
   }
 }
 
