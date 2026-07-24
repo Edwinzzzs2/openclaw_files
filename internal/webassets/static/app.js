@@ -18,7 +18,7 @@ const state = {
   entries: [],
   uploadTarget: "",
   pickerPath: "",
-  view: "files",
+  view: "uploads",
   config: null,
 };
 
@@ -196,7 +196,7 @@ async function enterApplication() {
   const requestedView = location.hash.replace(/^#/, "");
   const initialView = ["files", "uploads", "recent"].includes(requestedView)
     ? requestedView
-    : "files";
+    : "uploads";
   setUploadTarget(state.uploadTarget);
   await loadDirectory(state.currentPath);
   switchView(initialView);
@@ -279,21 +279,22 @@ function fileRowTemplate(entry, recent = false) {
     ? formatDate(entry.uploadedAt)
     : formatDate(entry.modifiedAt);
   const primaryAction = isDirectory
-    ? `<button class="action-button" type="button" data-action="open" data-path="${escapeHTML(entry.path)}">打开</button>`
+    ? `<button class="action-button" type="button" aria-label="打开文件夹" data-action="open" data-path="${escapeHTML(entry.path)}">${actionIconSVG("open")}<span>打开</span></button>`
     : entry.preview
-      ? `<button class="action-button preview-action" type="button" data-action="preview" data-entry="${encodeEntry(entry)}">预览</button>`
+      ? `<button class="action-button preview-action" type="button" aria-label="预览文件" data-action="preview" data-entry="${encodeEntry(entry)}">${actionIconSVG("preview")}<span>预览</span></button>`
       : "";
-  const copyAction = `<button class="action-button" type="button" data-action="copy" data-path="${escapeHTML(entry.serverPath)}">复制路径</button>`;
+  const copyAction = `<button class="action-button" type="button" aria-label="复制服务器路径" data-action="copy" data-path="${escapeHTML(entry.serverPath)}">${actionIconSVG("copy")}<span>复制路径</span></button>`;
   const downloadAction = isDirectory
     ? ""
-    : `<button class="action-button" type="button" data-action="download" data-entry="${encodeEntry(entry)}">下载</button>`;
+    : `<button class="action-button" type="button" aria-label="下载文件" data-action="download" data-entry="${encodeEntry(entry)}">${actionIconSVG("download")}<span>下载</span></button>`;
 
   return `
     <article class="file-row">
       <div class="file-name">
-        <div class="type-block ${escapeHTML(type.className)}">${escapeHTML(type.label)}</div>
+        <div class="type-block ${escapeHTML(type.className)}" title="${escapeHTML(type.label)}" aria-hidden="true">${fileIconSVG(type.icon)}</div>
         <div class="file-name-copy">
           <button class="file-name-button" type="button"
+            aria-label="${escapeHTML(isDirectory ? `打开文件夹 ${entry.name}` : `打开文件 ${entry.name}`)}"
             data-action="${isDirectory ? "open" : (entry.preview ? "preview" : "download")}"
             data-path="${escapeHTML(entry.path)}"
             data-entry="${encodeEntry(entry)}">
@@ -389,6 +390,7 @@ function uploadItemTemplate(item) {
   const resultPath = item.result?.serverPath
     ? `<span>${escapeHTML(item.result.serverPath)}</span>`
     : "";
+  const type = fileType({ name: item.file.name, type: "file", mime: item.file.type });
 
   let controls = "";
   if (["uploading", "retrying", "queued"].includes(item.status)) {
@@ -406,7 +408,7 @@ function uploadItemTemplate(item) {
 
   return `
     <article class="upload-item ${item.status === "error" ? "error" : ""}">
-      <div class="type-block">${escapeHTML(extensionLabel(item.file.name))}</div>
+      <div class="type-block ${escapeHTML(type.className)}" title="${escapeHTML(type.label)}" aria-hidden="true">${fileIconSVG(type.icon)}</div>
       <div class="upload-item-main">
         <div class="upload-item-title">
           <strong>${escapeHTML(item.file.name)}</strong>
@@ -484,7 +486,8 @@ async function renderPicker() {
     elements.pickerList.innerHTML = directories.length
       ? directories.map((entry) => `
           <button class="picker-entry" type="button" data-picker-path="${escapeHTML(entry.path)}">
-            ${escapeHTML(entry.name)}
+            <span class="picker-entry-icon" aria-hidden="true">${fileIconSVG("folder")}</span>
+            <span>${escapeHTML(entry.name)}</span>
           </button>`).join("")
       : '<div class="empty-state compact"><span>没有子文件夹</span></div>';
   } catch (error) {
@@ -657,18 +660,92 @@ function uploadStatusText(item) {
 }
 
 function fileType(entry) {
-  if (entry.type === "directory") return { label: "DIR", className: "directory" };
-  if (entry.preview === "video") return { label: extensionLabel(entry.name), className: "video" };
-  if (entry.mime === "application/pdf") return { label: "PDF", className: "pdf" };
-  if (entry.preview === "image") return { label: "IMG", className: "" };
-  if (entry.preview === "audio") return { label: "AUD", className: "" };
-  return { label: extensionLabel(entry.name), className: "" };
+  if (entry.type === "directory") {
+    return { label: "文件夹", className: "folder", icon: "folder" };
+  }
+  const extension = fileExtension(entry.name);
+  const mime = String(entry.mime || "").toLowerCase();
+  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "zst", "tgz"].includes(extension)) {
+    return { label: "压缩包", className: "archive", icon: "archive" };
+  }
+  if (extension === "apk" || extension === "xapk" || extension === "aab") {
+    return { label: "Android 应用", className: "app-package", icon: "app" };
+  }
+  if (["exe", "msi", "appimage", "deb", "rpm", "pkg", "dmg"].includes(extension)) {
+    return { label: "安装程序", className: "executable", icon: "terminal" };
+  }
+  if (extension === "pdf" || mime === "application/pdf") {
+    return { label: "PDF 文档", className: "pdf", icon: "pdf" };
+  }
+  if (entry.preview === "image" || mime.startsWith("image/")) {
+    return { label: "图片", className: "image", icon: "image" };
+  }
+  if (entry.preview === "video" || mime.startsWith("video/")) {
+    return { label: "视频", className: "video", icon: "video" };
+  }
+  if (entry.preview === "audio" || mime.startsWith("audio/")) {
+    return { label: "音频", className: "audio", icon: "audio" };
+  }
+  if (["doc", "docx", "odt", "rtf", "pages"].includes(extension)) {
+    return { label: "文档", className: "document", icon: "document" };
+  }
+  if (["xls", "xlsx", "ods", "csv", "numbers"].includes(extension)) {
+    return { label: "表格", className: "spreadsheet", icon: "spreadsheet" };
+  }
+  if (["ppt", "pptx", "odp", "key"].includes(extension)) {
+    return { label: "演示文稿", className: "presentation", icon: "presentation" };
+  }
+  if (["go", "js", "jsx", "ts", "tsx", "html", "css", "scss", "vue", "py", "java", "rs", "php", "sh", "ps1", "sql", "xml"].includes(extension)) {
+    return { label: "代码", className: "code", icon: "code" };
+  }
+  if (["txt", "md", "markdown", "log", "json", "yaml", "yml", "toml", "ini", "conf"].includes(extension) || entry.preview === "text") {
+    return { label: "文本", className: "text-file", icon: "text" };
+  }
+  if (extension === "torrent") {
+    return { label: "种子文件", className: "torrent", icon: "magnet" };
+  }
+  if (["iso", "img", "vhd", "vhdx"].includes(extension)) {
+    return { label: "磁盘镜像", className: "disk-image", icon: "disc" };
+  }
+  return { label: extension ? `${extension.toUpperCase()} 文件` : "文件", className: "generic", icon: "file" };
 }
 
-function extensionLabel(name) {
+function fileExtension(name) {
   const dot = name.lastIndexOf(".");
-  if (dot <= 0 || dot === name.length - 1) return "FILE";
-  return name.slice(dot + 1).toUpperCase().slice(0, 4);
+  if (dot <= 0 || dot === name.length - 1) return "";
+  return name.slice(dot + 1).toLowerCase();
+}
+
+function fileIconSVG(kind) {
+  const paths = {
+    folder: '<path class="icon-fill" d="M3.5 7.25h6.1l1.8 2H20.5v8.25a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7.25Z"/><path d="M3.5 7.25V5.7a1.7 1.7 0 0 1 1.7-1.7h4.1l2 2.25h7.2a2 2 0 0 1 2 2v1"/>',
+    archive: '<path d="M6 3.5h12v17H6z"/><path d="M10 3.5v3h4v3h-4v3h4v3h-4"/><path d="M10 18.5h4"/>',
+    app: '<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/>',
+    terminal: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="m7 9 2.5 2.5L7 14m5.5 0H17"/>',
+    pdf: '<path d="M6 2.75h8l4 4v14.5H6z"/><path d="M14 2.75v4h4"/><path d="M8.5 16.5h7M8.5 13h7"/>',
+    image: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="m5.5 17 4.25-4.5 3 3 2-2 3.75 3.5"/>',
+    video: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path class="icon-fill" d="m10 9 5 3-5 3V9Z"/>',
+    audio: '<path d="M9 17.5V6l9-2v11.5"/><ellipse cx="6.5" cy="17.5" rx="2.5" ry="2"/><ellipse cx="15.5" cy="15.5" rx="2.5" ry="2"/>',
+    document: '<path d="M6 2.75h8l4 4v14.5H6z"/><path d="M14 2.75v4h4M9 11h6M9 14.5h6M9 18h4"/>',
+    spreadsheet: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M4 8h16M4 13h16M4 17h16M10 8v13M15 8v13"/>',
+    presentation: '<path d="M4 4h16v12H4zM8 20l4-4 4 4"/><path d="M12 8v4l3-2-3-2Z"/>',
+    code: '<path d="m9 7-5 5 5 5m6-10 5 5-5 5m-2.5-12-2 14"/>',
+    text: '<path d="M6 2.75h8l4 4v14.5H6z"/><path d="M14 2.75v4h4M9 12h6M9 15.5h6M9 19h4"/>',
+    magnet: '<path d="M6 4v8a6 6 0 0 0 12 0V4M6 8h4m4 0h4"/><path d="M6 4h4v4H6zm8 0h4v4h-4z"/>',
+    disc: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.25"/><path d="M12 3.5V8m0 8v4.5"/>',
+    file: '<path d="M6 2.75h8l4 4v14.5H6z"/><path d="M14 2.75v4h4"/>',
+  };
+  return `<svg class="file-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[kind] || paths.file}</svg>`;
+}
+
+function actionIconSVG(kind) {
+  const paths = {
+    open: '<path d="M3.5 7.5h6l1.7 2H20.5v8.75A1.75 1.75 0 0 1 18.75 20H5.25A1.75 1.75 0 0 1 3.5 18.25V7.5Z"/>',
+    preview: '<path d="M2.75 12s3.25-5.5 9.25-5.5 9.25 5.5 9.25 5.5-3.25 5.5-9.25 5.5S2.75 12 2.75 12Z"/><circle cx="12" cy="12" r="2.5"/>',
+    copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    download: '<path d="M12 3.5v11m0 0 4-4m-4 4-4-4"/><path d="M5 18.5h14"/>',
+  };
+  return `<svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[kind] || ""}</svg>`;
 }
 
 function formatBytes(bytes) {

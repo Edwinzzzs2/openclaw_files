@@ -42,11 +42,14 @@
 html {
   min-width: 320px;
   background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100dvh;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -60,8 +63,10 @@ input {
 }
 
 button,
-a {
+a,
+label {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 button:focus-visible,
@@ -414,7 +419,7 @@ code {
 }
 
 .file-row {
-  min-height: 68px;
+  min-height: 66px;
   padding: 0 18px;
   border-top: 1px solid var(--line);
 }
@@ -432,6 +437,7 @@ code {
 
 .file-name-button {
   min-width: 0;
+  max-width: 100%;
   border: 0;
   padding: 0;
   background: transparent;
@@ -477,47 +483,164 @@ code {
 }
 
 .type-block {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
-  border-radius: 9px;
+  border-radius: 11px;
   display: grid;
   place-items: center;
-  background: #edf1f7;
-  color: #53617c;
-  font-size: 10px;
-  font-weight: 720;
-  letter-spacing: .04em;
+  background: #eef2f5;
+  color: #66747c;
 }
 
 :root[data-theme="dark"] .type-block {
-  background: #28303d;
-  color: #b7c3db;
+  background: #252b2e;
+  color: #aeb8bc;
 }
 
-.type-block.directory {
-  background: var(--surface-active);
-  color: var(--accent);
+.file-icon {
+  width: 24px;
+  height: 24px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-icon .icon-fill {
+  fill: currentColor;
+  fill-opacity: .12;
+}
+
+.type-block.folder {
+  background: #e9f7f4;
+  color: #168f87;
+}
+
+.type-block.archive {
+  background: #fff4db;
+  color: #a96b14;
 }
 
 .type-block.pdf {
-  background: #fbeeee;
-  color: #bd4c4c;
+  background: #fcebec;
+  color: #c24850;
+}
+
+.type-block.image {
+  background: #e9f5ec;
+  color: #34824a;
 }
 
 .type-block.video {
-  background: #eef0fa;
-  color: #5f659f;
+  background: #eeedfb;
+  color: #645fb0;
+}
+
+.type-block.audio {
+  background: #f8eefa;
+  color: #9655a1;
+}
+
+.type-block.document {
+  background: #eaf1fb;
+  color: #3972b6;
+}
+
+.type-block.spreadsheet {
+  background: #e8f5ef;
+  color: #2e845c;
+}
+
+.type-block.presentation {
+  background: #fff0e8;
+  color: #bf6337;
+}
+
+.type-block.code {
+  background: #edf0f3;
+  color: #53636c;
+}
+
+.type-block.text-file {
+  background: #eff2f4;
+  color: #68767d;
+}
+
+.type-block.app-package {
+  background: #ebf6df;
+  color: #5e8e2d;
+}
+
+.type-block.executable {
+  background: #e9eff8;
+  color: #4e6f9d;
+}
+
+.type-block.torrent {
+  background: #e8f5f4;
+  color: #398d86;
+}
+
+.type-block.disk-image {
+  background: #f0edf7;
+  color: #76619b;
+}
+
+:root[data-theme="dark"] .type-block.folder {
+  background: #19312e;
+  color: #65c7bd;
+}
+
+:root[data-theme="dark"] .type-block.archive {
+  background: #352d1d;
+  color: #e6b55e;
 }
 
 :root[data-theme="dark"] .type-block.pdf {
-  background: #392727;
-  color: #ee8c8c;
+  background: #392426;
+  color: #ec858b;
 }
 
-:root[data-theme="dark"] .type-block.video {
-  background: #292b43;
-  color: #aaaee8;
+:root[data-theme="dark"] .type-block.image,
+:root[data-theme="dark"] .type-block.spreadsheet,
+:root[data-theme="dark"] .type-block.app-package {
+  background: #213127;
+  color: #83bf8d;
+}
+
+:root[data-theme="dark"] .type-block.video,
+:root[data-theme="dark"] .type-block.audio,
+:root[data-theme="dark"] .type-block.presentation,
+:root[data-theme="dark"] .type-block.disk-image {
+  background: #29283a;
+  color: #aaa6e0;
+}
+
+:root[data-theme="dark"] .type-block.document,
+:root[data-theme="dark"] .type-block.executable {
+  background: #222d3a;
+  color: #91b3df;
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.action-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .empty-state,
@@ -565,7 +688,7 @@ code {
 }
 
 .dropzone {
-  min-height: 120px;
+  min-height: 138px;
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
   background: var(--surface);
@@ -587,8 +710,29 @@ code {
   font-weight: 580;
 }
 
-.dropzone span {
+.dropzone > span:not(.dropzone-icon) {
   color: var(--text-3);
+}
+
+.dropzone-icon {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 3px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-active);
+  color: var(--accent);
+}
+
+.dropzone-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .upload-queue {
@@ -865,11 +1009,30 @@ code {
   color: var(--text);
   text-align: left;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .picker-entry:hover {
   background: var(--surface-subtle);
   color: var(--accent);
+}
+
+.picker-entry-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-active);
+  color: var(--accent);
+}
+
+.picker-entry-icon .file-icon {
+  width: 19px;
+  height: 19px;
 }
 
 .toast {
@@ -914,13 +1077,24 @@ code {
 }
 
 @media (max-width: 760px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
   .topbar {
     height: 54px;
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    padding-top: env(safe-area-inset-top);
+    box-sizing: content-box;
   }
 
   .topbar-inner,
   .app {
-    width: calc(100% - 28px);
+    width: calc(100% - 24px);
   }
 
   .server-status,
@@ -935,12 +1109,19 @@ code {
   }
 
   .app {
-    margin-top: 18px;
+    margin-top: 20px;
     margin-bottom: calc(86px + env(safe-area-inset-bottom));
   }
 
   .page-heading {
     align-items: flex-start;
+    margin-bottom: 16px;
+  }
+
+  .heading-copy h1 {
+    font-size: 23px;
+    font-weight: 660;
+    letter-spacing: -.025em;
   }
 
   .page-actions .button:first-child {
@@ -966,8 +1147,9 @@ code {
 
   .file-row {
     grid-template-columns: minmax(0, 1fr) auto;
-    min-height: 72px;
-    padding: 0 12px;
+    min-height: 76px;
+    gap: 8px;
+    padding: 10px 8px 10px 12px;
   }
 
   .file-size,
@@ -979,13 +1161,56 @@ code {
     display: block;
   }
 
-  .file-actions .preview-action {
+  .file-actions .preview-action,
+  .file-actions [data-action="open"] {
     display: none;
   }
 
   .action-button {
-    padding-inline: 8px;
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
+    padding: 0;
+    border-radius: 11px;
     color: var(--accent);
+  }
+
+  .action-button > span {
+    display: none;
+  }
+
+  .action-icon {
+    width: 19px;
+    height: 19px;
+  }
+
+  .file-name {
+    gap: 10px;
+  }
+
+  .file-name-copy strong {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.35;
+  }
+
+  .file-name-button {
+    min-height: 24px;
+    touch-action: manipulation;
+  }
+
+  .file-mobile-meta {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+
+  .type-block {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
   }
 
   .empty-state,
@@ -995,7 +1220,8 @@ code {
 
   .upload-item {
     grid-template-columns: auto minmax(0, 1fr);
-    padding: 12px;
+    gap: 11px;
+    padding: 13px 12px;
   }
 
   .upload-item-actions {
@@ -1006,10 +1232,12 @@ code {
   .upload-target {
     grid-template-columns: 1fr;
     gap: 5px;
+    padding: 12px;
   }
 
   .dropzone {
-    min-height: 108px;
+    min-height: 164px;
+    border-radius: 16px;
   }
 
   .mobile-nav {
@@ -1030,6 +1258,22 @@ code {
     color: var(--text-3);
     cursor: pointer;
     font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    touch-action: manipulation;
+  }
+
+  .mobile-nav svg {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.65;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .mobile-nav button.active {
