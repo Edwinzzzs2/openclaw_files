@@ -14,14 +14,15 @@ import (
 )
 
 type fileEntry struct {
-	Name       string    `json:"name"`
-	Path       string    `json:"path"`
-	ServerPath string    `json:"serverPath"`
-	Type       string    `json:"type"`
-	Size       int64     `json:"size"`
-	ModifiedAt time.Time `json:"modifiedAt"`
-	MIME       string    `json:"mime,omitempty"`
-	Preview    string    `json:"preview,omitempty"`
+	Name            string    `json:"name"`
+	Path            string    `json:"path"`
+	ServerPath      string    `json:"serverPath"`
+	Type            string    `json:"type"`
+	Size            int64     `json:"size"`
+	ModifiedAt      time.Time `json:"modifiedAt"`
+	MIME            string    `json:"mime,omitempty"`
+	Preview         string    `json:"preview,omitempty"`
+	PreviewTooLarge bool      `json:"previewTooLarge,omitempty"`
 }
 
 type fileListResponse struct {
@@ -69,23 +70,30 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		entryType := "file"
 		entryMIME := ""
 		entryPreview := ""
+		entryPreviewTooLarge := false
 		if entryInfo.IsDir() {
 			entryType = "directory"
 		} else if entryInfo.Mode().IsRegular() {
 			entryMIME = mimeTypeForName(directoryEntry.Name())
-			entryPreview = previewKind(directoryEntry.Name(), entryMIME)
+			entryPreview, entryPreviewTooLarge = previewKindForSize(
+				directoryEntry.Name(),
+				entryMIME,
+				entryInfo.Size(),
+				s.config.MaxPreviewSize,
+			)
 		} else {
 			continue
 		}
 		entries = append(entries, fileEntry{
-			Name:       directoryEntry.Name(),
-			Path:       entryRelative,
-			ServerPath: s.paths.serverPath(entryRelative),
-			Type:       entryType,
-			Size:       entryInfo.Size(),
-			ModifiedAt: entryInfo.ModTime(),
-			MIME:       entryMIME,
-			Preview:    entryPreview,
+			Name:            directoryEntry.Name(),
+			Path:            entryRelative,
+			ServerPath:      s.paths.serverPath(entryRelative),
+			Type:            entryType,
+			Size:            entryInfo.Size(),
+			ModifiedAt:      entryInfo.ModTime(),
+			MIME:            entryMIME,
+			Preview:         entryPreview,
+			PreviewTooLarge: entryPreviewTooLarge,
 		})
 	}
 
@@ -222,6 +230,20 @@ func previewKind(name, contentType string) string {
 	switch {
 	case extension == ".svg" || extension == ".html" || extension == ".htm":
 		return "text"
+	case extension == ".md" || extension == ".markdown":
+		return "markdown"
+	case extension == ".json":
+		return "json"
+	case extension == ".csv" || extension == ".tsv":
+		return "table"
+	case extension == ".docx":
+		return "document"
+	case extension == ".xlsx":
+		return "spreadsheet"
+	case extension == ".pptx":
+		return "presentation"
+	case extension == ".zip":
+		return "archive"
 	case strings.HasPrefix(contentType, "image/"):
 		return "image"
 	case strings.HasPrefix(contentType, "video/"):
@@ -234,11 +256,22 @@ func previewKind(name, contentType string) string {
 		return "text"
 	}
 	switch extension {
-	case ".md", ".markdown", ".json", ".yaml", ".yml", ".toml", ".ini", ".conf",
+	case ".yaml", ".yml", ".toml", ".ini", ".conf",
 		".log", ".go", ".js", ".ts", ".tsx", ".jsx", ".css", ".scss", ".xml",
 		".sh", ".ps1", ".py", ".java", ".rs", ".sql":
 		return "text"
 	default:
 		return ""
 	}
+}
+
+func previewKindForSize(name, contentType string, size, maxSize int64) (string, bool) {
+	kind := previewKind(name, contentType)
+	if kind == "" {
+		return "", false
+	}
+	if maxSize > 0 && size > maxSize {
+		return "", true
+	}
+	return kind, false
 }

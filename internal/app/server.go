@@ -25,6 +25,9 @@ type Server struct {
 }
 
 func NewServer(config Config) (http.Handler, error) {
+	if config.MaxPreviewSize <= 0 {
+		config.MaxPreviewSize = defaultMaxPreviewSize
+	}
 	metadataDirectory := filepath.Join(config.StorageRoot, metadataDirectoryName)
 	uploadDirectory := filepath.Join(metadataDirectory, "uploads")
 	if err := os.MkdirAll(uploadDirectory, 0o700); err != nil {
@@ -32,7 +35,7 @@ func NewServer(config Config) (http.Handler, error) {
 	}
 
 	paths := newPathResolver(config.StorageRoot, config.HostPathPrefix)
-	recent := newRecentStore(metadataDirectory, paths)
+	recent := newRecentStore(metadataDirectory, paths, config.MaxPreviewSize)
 	server := &Server{
 		config:         config,
 		paths:          paths,
@@ -50,6 +53,7 @@ func NewServer(config Config) (http.Handler, error) {
 		paths,
 		recent,
 		config.MaxUploadSize,
+		config.MaxPreviewSize,
 		config.UploadChunkSize,
 	)
 	server.handler = server.routes()
@@ -80,6 +84,7 @@ func (s *Server) routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"hostPathPrefix": s.config.HostPathPrefix,
 			"maxUploadSize":  s.config.MaxUploadSize,
+			"maxPreviewSize": s.config.MaxPreviewSize,
 			"chunkSize":      s.config.UploadChunkSize,
 		})
 	})
@@ -88,9 +93,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/selection/delete", s.handleDeleteSelection)
 	mux.HandleFunc("POST /api/selection/rename", s.handleRenameSelection)
 	mux.HandleFunc("POST /api/selection/move", s.handleMoveSelection)
+	mux.HandleFunc("POST /api/selection/extract", s.handleExtractSelection)
 	mux.HandleFunc("POST /api/folders", s.handleCreateFolder)
 	mux.HandleFunc("GET /api/content", s.handleContent)
 	mux.HandleFunc("HEAD /api/content", s.handleContent)
+	mux.HandleFunc("GET /api/preview", s.handleStructuredPreview)
 	mux.HandleFunc("GET /api/recent", s.handleRecent)
 	mux.HandleFunc("GET /api/transfer", s.handleGetTransfer)
 	mux.HandleFunc("POST /api/transfer/content", s.handleTransferContentPlan)

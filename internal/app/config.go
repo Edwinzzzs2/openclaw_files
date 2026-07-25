@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	defaultChunkSize     = int64(2 * 1024 * 1024)
-	defaultMaxUploadSize = int64(100 * 1024 * 1024 * 1024)
+	defaultChunkSize      = int64(2 * 1024 * 1024)
+	defaultMaxUploadSize  = int64(100 * 1024 * 1024 * 1024)
+	defaultMaxPreviewSize = int64(20 * 1024 * 1024)
 )
 
 type Config struct {
@@ -22,6 +23,7 @@ type Config struct {
 	Password           string
 	CookieSecure       bool
 	MaxUploadSize      int64
+	MaxPreviewSize     int64
 	UploadChunkSize    int64
 	LANTransferOrigin  string
 	STUNTransferDomain string
@@ -37,6 +39,7 @@ func LoadConfig() (Config, error) {
 		Password:           os.Getenv("APP_PASSWORD"),
 		CookieSecure:       envBool("COOKIE_SECURE", false),
 		MaxUploadSize:      envInt64("MAX_UPLOAD_SIZE", defaultMaxUploadSize),
+		MaxPreviewSize:     envInt64("MAX_PREVIEW_SIZE", defaultMaxPreviewSize),
 		UploadChunkSize:    envInt64("UPLOAD_CHUNK_SIZE", defaultChunkSize),
 		LANTransferOrigin:  strings.TrimSpace(os.Getenv("LAN_TRANSFER_ORIGIN")),
 		STUNTransferDomain: strings.TrimSpace(os.Getenv("STUN_TRANSFER_DOMAIN")),
@@ -62,6 +65,12 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.MaxUploadSize <= 0 {
 		return Config{}, fmt.Errorf("MAX_UPLOAD_SIZE must be greater than zero")
+	}
+	if cfg.MaxPreviewSize < 1024*1024 {
+		return Config{}, fmt.Errorf("MAX_PREVIEW_SIZE must be at least 1 MiB")
+	}
+	if cfg.MaxPreviewSize > 1024*1024*1024 {
+		return Config{}, fmt.Errorf("MAX_PREVIEW_SIZE must not exceed 1 GiB")
 	}
 	if cfg.UploadChunkSize < 1024*1024 {
 		return Config{}, fmt.Errorf("UPLOAD_CHUNK_SIZE must be at least 1 MiB")

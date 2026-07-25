@@ -4,8 +4,10 @@ import {
   createFolder,
   deleteSelection,
   downloadURL,
+  extractSelection,
   listFiles,
   loadRecent,
+  loadStructuredPreview,
   loadTransferStatus,
   login,
   logout,
@@ -65,6 +67,7 @@ const elements = {
   selectionCount: document.querySelector("#selection-count"),
   selectionDownload: document.querySelector("#selection-download"),
   selectionRename: document.querySelector("#selection-rename"),
+  selectionExtract: document.querySelector("#selection-extract"),
   selectionMove: document.querySelector("#selection-move"),
   selectionDelete: document.querySelector("#selection-delete"),
   selectionClear: document.querySelector("#selection-clear"),
@@ -170,6 +173,7 @@ function bindEvents() {
   elements.selectAllCheckbox.addEventListener("change", toggleVisibleSelection);
   elements.selectionDownload.addEventListener("click", downloadSelected);
   elements.selectionRename.addEventListener("click", openRenameDialog);
+  elements.selectionExtract.addEventListener("click", extractSelected);
   elements.selectionMove.addEventListener("click", openMovePicker);
   elements.selectionDelete.addEventListener("click", openDeleteDialog);
   elements.selectionClear.addEventListener("click", clearSelection);
@@ -498,7 +502,7 @@ function fileRowTemplate(entry, recent = false) {
         <div class="file-name-copy">
           <button class="file-name-button" type="button"
             aria-label="${escapeHTML(isDirectory ? `打开文件夹 ${entry.name}` : `打开文件 ${entry.name}`)}"
-            data-action="${isDirectory ? "open" : (entry.preview ? "preview" : "download")}"
+            data-action="${isDirectory ? "open" : ((entry.preview || entry.previewTooLarge) ? "preview" : "download")}"
             data-path="${escapeHTML(entry.path)}"
             data-entry="${encodeEntry(entry)}">
             <strong>${escapeHTML(entry.name)}</strong>
@@ -583,6 +587,11 @@ function renderSelectionBar() {
   elements.selectionRename.title = selected.length === 1
     ? `重命名 ${selected[0].name}`
     : "每次只能重命名一个项目";
+  const canExtract = selected.length === 1 &&
+    selected[0].type === "file" &&
+    selected[0].name.toLocaleLowerCase().endsWith(".zip");
+  elements.selectionExtract.hidden = !canExtract;
+  elements.selectionExtract.disabled = !canExtract;
   elements.selectionMove.disabled = selected.length === 0;
   elements.selectAllCheckbox.checked = allVisibleSelected;
   elements.selectAllCheckbox.indeterminate = visibleSelectedCount > 0 && !allVisibleSelected;
@@ -651,6 +660,29 @@ async function handleRenameSelection(event) {
     elements.renameError.textContent = error?.message || "重命名失败";
   } finally {
     elements.confirmRenameButton.disabled = false;
+  }
+}
+
+async function extractSelected() {
+  const entries = selectedEntries();
+  if (
+    entries.length !== 1 ||
+    entries[0].type !== "file" ||
+    !entries[0].name.toLocaleLowerCase().endsWith(".zip")
+  ) {
+    return;
+  }
+  const entry = entries[0];
+  elements.selectionExtract.disabled = true;
+  try {
+    const result = await extractSelection(state.currentPath, entry.path);
+    state.selectedPaths.clear();
+    await loadDirectory(state.currentPath);
+    showToast("解压完成", `${result.name} · ${result.files} 个文件`);
+  } catch (error) {
+    showToast("解压失败", error?.message || "请求失败");
+  } finally {
+    elements.selectionExtract.disabled = false;
   }
 }
 
@@ -1032,6 +1064,14 @@ async function openPreview(entry) {
   elements.previewContent.replaceChildren();
   elements.previewDialog.showModal();
 
+  if (entry.previewTooLarge) {
+    elements.previewContent.append(previewNotice(
+      "文件超过在线预览上限",
+      "为避免占用过多手机内存，请下载后使用本地应用打开。",
+    ));
+    return;
+  }
+
   const source = contentURL(entry.path);
   if (entry.preview === "image") {
     const image = document.createElement("img");
@@ -1063,31 +1103,305 @@ async function openPreview(entry) {
     elements.previewContent.append(frame);
     return;
   }
-  if (entry.preview === "text") {
-    const pre = document.createElement("pre");
-    pre.textContent = "正在读取文本";
-    elements.previewContent.append(pre);
+  if (["text", "markdown", "json", "table"].includes(entry.preview)) {
+    const loading = previewNotice("正在准备预览", "读取文件内容…");
+    elements.previewContent.append(loading);
     try {
-      const response = await fetch(source, {
-        headers: { Range: "bytes=0-1048575" },
-        credentials: "same-origin",
-      });
-      if (!response.ok && response.status !== 206) {
-        throw new APIError(`读取失败 (${response.status})`, response.status);
+      const text = await loadPreviewText(source, entry.size);
+      elements.previewContent.replaceChildren();
+      if (entry.preview === "markdown") {
+        elements.previewContent.append(renderMarkdown(text.value));
+      } else if (entry.preview === "json") {
+        elements.previewContent.append(renderJSONPreview(text.value));
+      } else if (entry.preview === "table") {
+        const delimiter = entry.name.toLocaleLowerCase().endsWith(".tsv") ? "\t" : ",";
+        elements.previewContent.append(renderTablePreview(
+          parseDelimitedText(text.value, delimiter),
+          entry.name,
+        ));
+      } else {
+        const pre = document.createElement("pre");
+        pre.textContent = text.value;
+        elements.previewContent.append(pre);
       }
-      pre.textContent = await response.text();
-      if (entry.size > 1048576) {
-        pre.textContent += "\n\n[预览仅显示前 1 MiB]";
+      if (text.truncated) {
+        elements.previewContent.append(previewFootnote("预览仅显示文件前 2 MiB"));
       }
     } catch (error) {
-      pre.textContent = error?.message || "无法读取文本";
+      elements.previewContent.replaceChildren(previewNotice(
+        "无法生成预览",
+        error?.message || "文件内容读取失败",
+      ));
     }
     return;
   }
-  const message = document.createElement("div");
-  message.className = "preview-message";
-  message.textContent = "此文件暂不支持在线预览，可以下载后打开。";
-  elements.previewContent.append(message);
+  if (["document", "spreadsheet", "presentation", "archive"].includes(entry.preview)) {
+    elements.previewContent.append(previewNotice("正在准备预览", "正在本地解析文件内容…"));
+    try {
+      const preview = await loadStructuredPreview(entry.path);
+      elements.previewContent.replaceChildren(renderStructuredPreview(preview));
+    } catch (error) {
+      elements.previewContent.replaceChildren(previewNotice(
+        "无法生成预览",
+        error?.message || "文件格式可能不完整",
+      ));
+    }
+    return;
+  }
+  elements.previewContent.append(previewNotice(
+    "暂不支持在线预览",
+    "可以下载后使用本地应用打开。",
+  ));
+}
+
+async function loadPreviewText(source, fileSize) {
+  const limit = 2 * 1024 * 1024;
+  const response = await fetch(source, {
+    headers: { Range: `bytes=0-${limit - 1}` },
+    credentials: "same-origin",
+  });
+  if (!response.ok && response.status !== 206) {
+    throw new APIError(`读取失败 (${response.status})`, response.status);
+  }
+  const value = await response.text();
+  return {
+    value,
+    truncated: fileSize > limit,
+  };
+}
+
+function previewNotice(title, message) {
+  const notice = document.createElement("div");
+  notice.className = "preview-message";
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  const copy = document.createElement("span");
+  copy.textContent = message;
+  notice.append(heading, copy);
+  return notice;
+}
+
+function previewFootnote(message) {
+  const note = document.createElement("div");
+  note.className = "preview-footnote";
+  note.textContent = message;
+  return note;
+}
+
+function renderJSONPreview(value) {
+  const pre = document.createElement("pre");
+  pre.className = "code-preview";
+  try {
+    pre.textContent = JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    pre.textContent = value;
+  }
+  return pre;
+}
+
+function renderMarkdown(value) {
+  const article = document.createElement("article");
+  article.className = "markdown-preview";
+  const lines = value.replace(/\r\n?/g, "\n").split("\n");
+  let code = null;
+  let codeLines = [];
+  let list = null;
+  const finishList = () => {
+    list = null;
+  };
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      finishList();
+      if (code) {
+        code.textContent = codeLines.join("\n");
+        code = null;
+        codeLines = [];
+      } else {
+        const pre = document.createElement("pre");
+        code = document.createElement("code");
+        codeLines = [];
+        pre.append(code);
+        article.append(pre);
+      }
+      continue;
+    }
+    if (code) {
+      codeLines.push(line);
+      continue;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      finishList();
+      const element = document.createElement(`h${heading[1].length}`);
+      element.textContent = heading[2];
+      article.append(element);
+      continue;
+    }
+    const listItem = line.match(/^\s*([-*+]|\d+\.)\s+(.+)$/);
+    if (listItem) {
+      const ordered = /\d+\./.test(listItem[1]);
+      if (!list || list.tagName !== (ordered ? "OL" : "UL")) {
+        list = document.createElement(ordered ? "ol" : "ul");
+        article.append(list);
+      }
+      const item = document.createElement("li");
+      item.textContent = listItem[2];
+      list.append(item);
+      continue;
+    }
+    finishList();
+    if (line.startsWith(">")) {
+      const quote = document.createElement("blockquote");
+      quote.textContent = line.replace(/^>\s?/, "");
+      article.append(quote);
+    } else if (/^([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+      article.append(document.createElement("hr"));
+    } else if (line.trim()) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      article.append(paragraph);
+    } else {
+      article.append(document.createElement("br"));
+    }
+  }
+  if (code) code.textContent = codeLines.join("\n");
+  return article;
+}
+
+function parseDelimitedText(value, delimiter) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < value.length && rows.length < 200; index++) {
+    const character = value[index];
+    if (character === '"') {
+      if (quoted && value[index + 1] === '"') {
+        cell += '"';
+        index++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === delimiter && !quoted) {
+      row.push(cell);
+      cell = "";
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && value[index + 1] === "\n") index++;
+      row.push(cell);
+      rows.push(row.slice(0, 40));
+      row = [];
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  if ((cell || row.length) && rows.length < 200) {
+    row.push(cell);
+    rows.push(row.slice(0, 40));
+  }
+  return rows;
+}
+
+function renderTablePreview(rows, title = "") {
+  const section = document.createElement("section");
+  section.className = "table-preview";
+  if (title) {
+    const heading = document.createElement("strong");
+    heading.className = "preview-section-title";
+    heading.textContent = title;
+    section.append(heading);
+  }
+  const scroller = document.createElement("div");
+  scroller.className = "table-scroll";
+  const table = document.createElement("table");
+  rows.forEach((row, rowIndex) => {
+    const tableRow = document.createElement("tr");
+    row.forEach((value) => {
+      const cell = document.createElement(rowIndex === 0 ? "th" : "td");
+      cell.textContent = value;
+      tableRow.append(cell);
+    });
+    table.append(tableRow);
+  });
+  if (!rows.length) {
+    scroller.append(previewNotice("没有可显示的数据", "文件内容为空。"));
+  } else {
+    scroller.append(table);
+  }
+  section.append(scroller);
+  return section;
+}
+
+function renderStructuredPreview(preview) {
+  if (preview.kind === "document") {
+    const article = document.createElement("article");
+    article.className = "document-preview";
+    (preview.paragraphs || []).forEach((value) => {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = value;
+      article.append(paragraph);
+    });
+    if (!article.childElementCount) {
+      article.append(previewNotice("没有可显示的正文", "文档可能仅包含图片或复杂对象。"));
+    }
+    if (preview.truncated) article.append(previewFootnote("文档较长，仅显示部分正文"));
+    return article;
+  }
+  if (preview.kind === "spreadsheet") {
+    const workbook = document.createElement("div");
+    workbook.className = "workbook-preview";
+    (preview.sheets || []).forEach((sheet) => {
+      workbook.append(renderTablePreview(sheet.rows || [], sheet.name));
+      if (sheet.truncated) workbook.append(previewFootnote(`${sheet.name} 仅显示部分单元格`));
+    });
+    if (!workbook.childElementCount) {
+      workbook.append(previewNotice("没有可显示的表格", "工作簿可能为空。"));
+    }
+    return workbook;
+  }
+  if (preview.kind === "presentation") {
+    const deck = document.createElement("div");
+    deck.className = "slides-preview";
+    (preview.slides || []).forEach((slide) => {
+      const card = document.createElement("article");
+      const number = document.createElement("span");
+      number.textContent = String(slide.number).padStart(2, "0");
+      card.append(number);
+      (slide.paragraphs || []).forEach((value) => {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = value;
+        card.append(paragraph);
+      });
+      deck.append(card);
+    });
+    if (!deck.childElementCount) {
+      deck.append(previewNotice("没有可显示的文字", "幻灯片可能仅包含图片或图表。"));
+    }
+    if (preview.truncated) deck.append(previewFootnote("演示文稿较长，仅显示部分幻灯片"));
+    return deck;
+  }
+  if (preview.kind === "archive") {
+    const archive = document.createElement("div");
+    archive.className = "archive-preview";
+    (preview.entries || []).forEach((entry) => {
+      const row = document.createElement("div");
+      const icon = document.createElement("span");
+      icon.className = "archive-entry-icon";
+      icon.innerHTML = fileIconSVG(entry.directory ? "folder" : fileType({ name: entry.name, type: "file" }).icon);
+      const name = document.createElement("strong");
+      name.textContent = entry.name;
+      const size = document.createElement("span");
+      size.textContent = entry.directory ? "文件夹" : formatBytes(entry.size);
+      row.append(icon, name, size);
+      archive.append(row);
+    });
+    if (!archive.childElementCount) {
+      archive.append(previewNotice("压缩包为空", "没有可显示的文件。"));
+    }
+    if (preview.truncated) archive.append(previewFootnote("文件较多，仅显示前 400 项"));
+    return archive;
+  }
+  return previewNotice("暂不支持在线预览", "可以下载后使用本地应用打开。");
 }
 
 function clearPreview() {

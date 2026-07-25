@@ -128,6 +128,17 @@ export function moveSelection(directory, paths, destination) {
   });
 }
 
+export function extractSelection(directory, path) {
+  return apiFetch("/api/selection/extract", {
+    method: "POST",
+    body: { directory, path },
+  });
+}
+
+export function loadStructuredPreview(path) {
+  return apiFetch(`/api/preview?path=${encodeURIComponent(path)}`);
+}
+
 export function loadRecent() {
   return apiFetch("/api/recent");
 }

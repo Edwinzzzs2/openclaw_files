@@ -10,12 +10,15 @@ ClawFiles 是一个面向手机使用的单目录文件投递器。它把服务�
 
 - 浏览映射目录及子目录
 - 新建文件夹
-- 图片、视频、音频、PDF、文本和常见代码文件预览
+- 图片、视频、音频、PDF、文本、Markdown、JSON、CSV/TSV 预览
+- DOCX 正文、XLSX 表格、PPTX 文字和 ZIP 文件列表的本地轻量预览
+- 默认只预览不超过 20 MiB 的文件，超出后直接提示下载，避免占用手机内存
 - 视频和大文件响应支持 HTTP Range
 - 下载文件
 - 复选框多选文件和文件夹
 - 多选内容流式打包为 ZIP 下载
 - 单个项目重命名，单个或多个项目移动到其他目录
+- 勾选单个 ZIP 后可直接解压到当前目录的同名文件夹
 - 批量删除并在操作前二次确认
 - 一键复制服务器绝对路径
 - 自动隐藏 ClawFiles 自己的元数据目录
@@ -72,6 +75,7 @@ LAN_TRANSFER_ORIGIN=
 STUN_TRANSFER_DOMAIN=
 STUN_WEBHOOK_TOKEN=
 TRANSFER_SIGNING_KEY=
+MAX_PREVIEW_SIZE=20971520
 ```
 
 确认 `PUID` 和 `PGID` 对 `HOST_STORAGE_PATH` 具有读写权限，然后启动：
@@ -103,6 +107,8 @@ http://服务器地址:3661
 ```text
 /home/xixili/.openclaw/workspace/xixili/tmpo/tasks/video.mp4
 ```
+
+`MAX_PREVIEW_SIZE` 使用字节数，默认 `20971520`（20 MiB）。Office 文件采用服务器本地的轻量解析，只读取可显示的文字、单元格和幻灯片文字，不会把文件发送给第三方预览服务，也不会还原复杂排版。
 
 ## HTTPS 与 PWA
 

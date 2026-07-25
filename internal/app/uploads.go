@@ -58,12 +58,13 @@ type uploadStatus struct {
 }
 
 type uploadManager struct {
-	directory string
-	paths     pathResolver
-	recent    *recentStore
-	maxSize   int64
-	chunkSize int64
-	locks     sync.Map
+	directory      string
+	paths          pathResolver
+	recent         *recentStore
+	maxSize        int64
+	maxPreviewSize int64
+	chunkSize      int64
+	locks          sync.Map
 }
 
 func newUploadManager(
@@ -71,14 +72,16 @@ func newUploadManager(
 	paths pathResolver,
 	recent *recentStore,
 	maxSize int64,
+	maxPreviewSize int64,
 	chunkSize int64,
 ) *uploadManager {
 	manager := &uploadManager{
-		directory: directory,
-		paths:     paths,
-		recent:    recent,
-		maxSize:   maxSize,
-		chunkSize: chunkSize,
+		directory:      directory,
+		paths:          paths,
+		recent:         recent,
+		maxSize:        maxSize,
+		maxPreviewSize: maxPreviewSize,
+		chunkSize:      chunkSize,
 	}
 	manager.cleanupExpired()
 	return manager
@@ -388,7 +391,12 @@ func (u *uploadManager) complete(metadata uploadMetadata) (recentEntry, error) {
 		UploadedAt: time.Now().UTC(),
 		MIME:       mimeTypeForName(finalName),
 	}
-	entry.Preview = previewKind(finalName, entry.MIME)
+	entry.Preview, entry.PreviewTooLarge = previewKindForSize(
+		finalName,
+		entry.MIME,
+		entry.Size,
+		u.maxPreviewSize,
+	)
 	if err := u.recent.add(entry); err != nil {
 		log.Printf("save recent upload %s: %v", relative, err)
 	}

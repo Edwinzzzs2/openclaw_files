@@ -16,26 +16,29 @@ import (
 const maxRecentEntries = 200
 
 type recentEntry struct {
-	Name       string    `json:"name"`
-	Path       string    `json:"path"`
-	ServerPath string    `json:"serverPath"`
-	Size       int64     `json:"size"`
-	ModifiedAt time.Time `json:"modifiedAt"`
-	UploadedAt time.Time `json:"uploadedAt"`
-	MIME       string    `json:"mime,omitempty"`
-	Preview    string    `json:"preview,omitempty"`
+	Name            string    `json:"name"`
+	Path            string    `json:"path"`
+	ServerPath      string    `json:"serverPath"`
+	Size            int64     `json:"size"`
+	ModifiedAt      time.Time `json:"modifiedAt"`
+	UploadedAt      time.Time `json:"uploadedAt"`
+	MIME            string    `json:"mime,omitempty"`
+	Preview         string    `json:"preview,omitempty"`
+	PreviewTooLarge bool      `json:"previewTooLarge,omitempty"`
 }
 
 type recentStore struct {
-	mu       sync.Mutex
-	filePath string
-	paths    pathResolver
+	mu             sync.Mutex
+	filePath       string
+	paths          pathResolver
+	maxPreviewSize int64
 }
 
-func newRecentStore(metadataDirectory string, paths pathResolver) *recentStore {
+func newRecentStore(metadataDirectory string, paths pathResolver, maxPreviewSize int64) *recentStore {
 	return &recentStore{
-		filePath: filepath.Join(metadataDirectory, "recent.json"),
-		paths:    paths,
+		filePath:       filepath.Join(metadataDirectory, "recent.json"),
+		paths:          paths,
+		maxPreviewSize: maxPreviewSize,
 	}
 }
 
@@ -84,7 +87,12 @@ func (r *recentStore) list(limit int) ([]recentEntry, error) {
 		entry.Size = info.Size()
 		entry.ModifiedAt = info.ModTime()
 		entry.MIME = mimeTypeForName(entry.Name)
-		entry.Preview = previewKind(entry.Name, entry.MIME)
+		entry.Preview, entry.PreviewTooLarge = previewKindForSize(
+			entry.Name,
+			entry.MIME,
+			entry.Size,
+			r.maxPreviewSize,
+		)
 		valid = append(valid, entry)
 	}
 	sort.SliceStable(valid, func(i, j int) bool {
