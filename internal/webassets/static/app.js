@@ -493,9 +493,12 @@ function fileRowTemplate(entry, recent = false) {
         <span class="checkbox-mark" aria-hidden="true"></span>
       </label>`;
   const copyAction = `<button class="action-button quick-copy" type="button" title="复制服务器路径" aria-label="复制服务器路径" data-action="copy" data-path="${escapeHTML(entry.serverPath)}">${actionIconSVG("copy")}<span>复制路径</span></button>`;
+  const directoryAction = isDirectory
+    ? ` data-open-directory="${escapeHTML(entry.path)}"`
+    : "";
 
   return `
-    <article class="file-row ${selected ? "selected" : ""}">
+    <article class="file-row ${selected ? "selected" : ""}"${directoryAction}>
       <div class="file-name">
         ${selectionControl}
         <div class="type-block ${escapeHTML(type.className)}" title="${escapeHTML(type.label)}" aria-hidden="true">${fileIconSVG(type.icon)}</div>
@@ -518,7 +521,24 @@ function fileRowTemplate(entry, recent = false) {
 
 function handleFileAction(event) {
   const button = event.target.closest("[data-action]");
-  if (!button) return;
+  if (!button) {
+    const row = event.target.closest("[data-open-directory]");
+    if (
+      !row ||
+      event.target.closest(".row-selection") ||
+      event.target.closest(".file-actions")
+    ) {
+      return;
+    }
+    const path = row.dataset.openDirectory;
+    if (state.selectedPaths.size > 0) {
+      toggleSelectedPath(path);
+    } else {
+      loadDirectory(path);
+      switchView("files");
+    }
+    return;
+  }
   const action = button.dataset.action;
   if (
     state.selectedPaths.size > 0 &&

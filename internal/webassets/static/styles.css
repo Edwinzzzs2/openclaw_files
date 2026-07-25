@@ -495,6 +495,15 @@ code {
   background: var(--surface-subtle);
 }
 
+.file-row[data-open-directory] {
+  cursor: pointer;
+}
+
+.file-row[data-open-directory] .row-selection,
+.file-row[data-open-directory] .file-actions {
+  cursor: default;
+}
+
 .file-row.selected {
   background: var(--surface-active);
 }
@@ -870,31 +879,69 @@ code {
   gap: 7px;
 }
 
-.ios-upload-notice {
-  margin-bottom: 12px;
-  min-height: 38px;
-  padding: 7px 11px;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
-  border-radius: 11px;
-  background: var(--surface-active);
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.4;
+.upload-heading-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.ios-upload-notice svg {
-  width: 17px;
-  height: 17px;
-  margin-top: 1px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.upload-help {
+  position: relative;
+  z-index: 5;
+}
+
+.upload-help summary {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-3);
+  cursor: pointer;
+  list-style: none;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 650;
+  user-select: none;
+}
+
+.upload-help summary::-webkit-details-marker {
+  display: none;
+}
+
+.upload-help summary:hover,
+.upload-help[open] summary {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface-active);
+}
+
+.upload-help-panel {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  width: min(310px, calc(100vw - 32px));
+  padding: 14px 15px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-2);
+}
+
+.upload-help-panel strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.upload-help-panel p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .dropzone {
@@ -1823,6 +1870,20 @@ code {
     height: 17px;
   }
 
+  .upload-heading-actions {
+    gap: 6px;
+  }
+
+  .upload-help summary {
+    width: 36px;
+    height: 36px;
+  }
+
+  .upload-help-panel {
+    top: 43px;
+    right: 0;
+  }
+
   .file-panel {
     box-shadow: none;
   }
@@ -1940,13 +2001,6 @@ code {
     min-height: 42px;
     margin-bottom: 8px;
     padding: 6px 10px;
-  }
-
-  .ios-upload-notice {
-    min-height: 36px;
-    margin-bottom: 8px;
-    padding: 6px 9px;
-    font-size: 11px;
   }
 
   .dropzone {
