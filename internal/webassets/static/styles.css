@@ -825,18 +825,20 @@ code {
 
 .upload-target {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
+  grid-template-columns: 18px auto minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   margin-bottom: 12px;
-  padding: 12px 14px;
+  min-height: 46px;
+  padding: 8px 13px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 11px;
   background: var(--surface);
 }
 
 .upload-target span {
-  color: var(--text-2);
+  color: var(--text-3);
+  font-size: 12px;
 }
 
 .upload-target strong {
@@ -847,18 +849,40 @@ code {
   font-weight: 560;
 }
 
+.upload-target > svg,
+.choose-target-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.upload-target > svg {
+  color: var(--accent);
+}
+
+.choose-target-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .ios-upload-notice {
   margin-bottom: 12px;
-  padding: 10px 12px;
+  min-height: 38px;
+  padding: 7px 11px;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
   border-radius: 11px;
   background: var(--surface-active);
   color: var(--text-2);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.4;
   display: flex;
-  align-items: flex-start;
-  gap: 9px;
+  align-items: center;
+  gap: 8px;
 }
 
 .ios-upload-notice svg {
@@ -1393,17 +1417,77 @@ code {
   gap: 8px;
 }
 
-.picker-toolbar {
-  padding: 12px;
+.folder-picker[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.picker-location {
+  min-height: 58px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--line);
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+}
+
+.picker-up-button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  color: var(--text-2);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.picker-up-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--accent);
+}
+
+.picker-up-button:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.picker-up-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.picker-location > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.picker-location span {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.picker-location strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .picker-list {
   min-height: 180px;
   max-height: 50dvh;
+  flex: 1;
   overflow: auto;
 }
 
@@ -1420,6 +1504,14 @@ code {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.picker-entry::after {
+  content: "›";
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 22px;
+  font-weight: 300;
 }
 
 .picker-entry:hover {
@@ -1441,6 +1533,15 @@ code {
 .picker-entry-icon .file-icon {
   width: 19px;
   height: 19px;
+}
+
+.picker-footer {
+  padding: 11px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: auto minmax(150px, 1fr);
+  gap: 8px;
 }
 
 .toast {
@@ -1699,6 +1800,29 @@ code {
     padding: 7px 10px;
   }
 
+  .upload-heading {
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .upload-heading .heading-copy p {
+    display: none;
+  }
+
+  .upload-heading .heading-copy h1 {
+    font-size: 22px;
+  }
+
+  .choose-target-button {
+    min-height: 36px;
+    padding: 6px 10px;
+  }
+
+  .choose-target-button svg {
+    width: 17px;
+    height: 17px;
+  }
+
   .file-panel {
     box-shadow: none;
   }
@@ -1811,14 +1935,54 @@ code {
   }
 
   .upload-target {
-    grid-template-columns: 1fr;
-    gap: 5px;
-    padding: 12px;
+    grid-template-columns: 17px auto minmax(0, 1fr);
+    gap: 7px;
+    min-height: 42px;
+    margin-bottom: 8px;
+    padding: 6px 10px;
+  }
+
+  .ios-upload-notice {
+    min-height: 36px;
+    margin-bottom: 8px;
+    padding: 6px 9px;
+    font-size: 11px;
   }
 
   .dropzone {
-    min-height: 164px;
+    min-height: 142px;
     border-radius: 16px;
+  }
+
+  .folder-picker {
+    width: calc(100% - 20px);
+    height: min(68dvh, 560px);
+    max-height: calc(100dvh - 24px);
+    margin-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .folder-picker .dialog-header {
+    min-height: 54px;
+  }
+
+  .picker-location {
+    min-height: 54px;
+    padding: 7px 10px;
+  }
+
+  .picker-list {
+    min-height: 0;
+    max-height: none;
+  }
+
+  .picker-entry {
+    min-height: 54px;
+    padding: 8px 12px;
+  }
+
+  .picker-footer {
+    padding: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 
   .mobile-nav {
