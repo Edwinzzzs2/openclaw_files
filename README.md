@@ -155,8 +155,8 @@ PWA 始终从稳定的 FRP 域名打开，登录、浏览目录、创建上传�
 
 | 地址 | 示例 | 用途 |
 |---|---|---|
-| 稳定页面入口 | `https://clawfiles.dolast.top` | FRP 或公网反向代理，负责始终能打开 PWA |
-| 局域网传输入口 | `https://clawfiles-lan.dolast.top:10010` | 家中 Wi-Fi 下直连 Lucky，速度最高且不消耗公网带宽 |
+| 稳定页面入口 | `https://files.example.com` | FRP 或公网反向代理，负责始终能打开 PWA |
+| 局域网传输入口 | `https://files-lan.example.com:10010` | 家中 Wi-Fi 下直连 Lucky，速度最高且不消耗公网带宽 |
 | STUN 传输入口 | `https://stun.example.com:动态端口` | 外网环境下使用家庭宽带 STUN 映射的动态端口 |
 | ClawFiles 后端 | `http://192.168.31.73:3661` | Docker 暴露的纯 HTTP 服务，只供反向代理访问 |
 
@@ -204,7 +204,7 @@ LAN_TRANSFER_ORIGIN → STUN 动态地址 → 当前 FRP 域名
 使用 FRP、Lucky、Caddy 或 Nginx 提供一个稳定 HTTPS 域名，例如：
 
 ```text
-https://clawfiles.dolast.top → http://192.168.31.73:3661
+https://files.example.com → http://192.168.31.73:3661
 ```
 
 PWA 始终从这里打开和安装。即使局域网或 STUN 暂时不可用，也不会影响进入文件页面和管理已有文件。
@@ -214,14 +214,14 @@ PWA 始终从这里打开和安装。即使局域网或 STUN 暂时不可用，�
 为局域网单独准备一个域名，并把 A 记录或局域网分流 DNS 指向运行 Lucky 的设备：
 
 ```text
-clawfiles-lan.dolast.top → 192.168.31.57
+files-lan.example.com → 192.168.31.57
 Lucky HTTPS :10010 → http://192.168.31.73:3661
 ```
 
 Lucky 中需要：
 
 1. 新建 HTTPS 反向代理规则并监听 `10010`。
-2. 域名填写 `clawfiles-lan.dolast.top`。
+2. 域名填写 `files-lan.example.com`。
 3. 为该域名配置有效 TLS 证书。
 4. 后端地址填写 `http://192.168.31.73:3661`。
 5. 不要开启会把请求再次重定向到公网域名的规则。
@@ -229,7 +229,7 @@ Lucky 中需要：
 验证时直接访问：
 
 ```text
-https://clawfiles-lan.dolast.top:10010/api/health
+https://files-lan.example.com:10010/api/health
 ```
 
 应快速返回：
@@ -246,13 +246,13 @@ https://clawfiles-lan.dolast.top:10010/api/health
 
 ```yaml
 rules:
-  - DOMAIN,clawfiles-lan.dolast.top,DIRECT
+  - DOMAIN,files-lan.example.com,DIRECT
 ```
 
 在 DNS 设置的自定义 Fake-IP-Filter 中加入：
 
 ```text
-clawfiles-lan.dolast.top
+files-lan.example.com
 ```
 
 Fake-IP-Filter 使用黑名单模式时，匹配到的域名应返回真实地址 `192.168.31.57`。修改后要保存、应用并重启 OpenClash，同时清理 Fake-IP/DNS 缓存，再让手机重新连接 Wi-Fi。
@@ -275,7 +275,7 @@ Compose 中配置局域网入口和 STUN 签名参数：
 ```yaml
 environment:
   COOKIE_SECURE: "true"
-  LAN_TRANSFER_ORIGIN: "https://clawfiles-lan.dolast.top:10010"
+  LAN_TRANSFER_ORIGIN: "https://files-lan.example.com:10010"
   STUN_TRANSFER_DOMAIN: "stun.example.com"
   STUN_WEBHOOK_TOKEN: "至少24位的随机Webhook令牌"
   TRANSFER_SIGNING_KEY: "至少32位的随机签名密钥"
@@ -284,7 +284,7 @@ environment:
 `LAN_TRANSFER_ORIGIN` 必须填写完整的 HTTPS Origin，可以包含固定端口，但不能包含路径、查询参数或片段。末尾 `/` 会被自动移除。局域网 DNS 应把该域名解析到运行 HTTPS 反向代理的设备，而不是直接解析到 ClawFiles 后端。例如：
 
 ```text
-clawfiles-lan.dolast.top → 192.168.31.57
+files-lan.example.com → 192.168.31.57
 Lucky HTTPS :10010 → http://192.168.31.73:3661
 ```
 
@@ -353,7 +353,7 @@ Webhook 配置页面进行连通性测试时可以发送 `event: "test"`。测�
   "stateUpdated": true,
   "ip": "112.86.208.141",
   "port": 29717,
-  "endpoint": "https://clawfiles.dolast.top:29717",
+  "endpoint": "https://stun.example.com:29717",
   "updatedAt": "2026-07-25T01:30:00Z",
   "receivedAt": "2026-07-25T01:30:00Z"
 }
@@ -379,10 +379,10 @@ STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口�
 
 ```bash
 # 1. 域名应返回 Lucky 的局域网地址，而不是 198.18.x.x
-nslookup clawfiles-lan.dolast.top
+nslookup files-lan.example.com
 
 # 2. HTTPS、证书和 Lucky 反向代理应返回 200
-curl -i https://clawfiles-lan.dolast.top:10010/api/health
+curl -i https://files-lan.example.com:10010/api/health
 
 # 3. 查看容器是否正常
 docker compose ps
@@ -420,7 +420,7 @@ docker compose logs --tail=100 clawfiles
 | `MAX_UPLOAD_SIZE` | `107374182400` | 单文件上限，单位为字节，默认 100 GiB |
 | `MAX_PREVIEW_SIZE` | `20971520` | 在线预览文件上限，单位为字节，默认 20 MiB |
 | `UPLOAD_CHUNK_SIZE` | `2097152` | 服务端允许的分块上限，单位为字节，允许 1-64 MiB；网页端最多使用 2 MiB，iPhone/iPad 自动使用 128 KiB |
-| `LAN_TRANSFER_ORIGIN` | 空 | 固定局域网 HTTPS Origin，可包含端口，例如 `https://clawfiles-lan.dolast.top:10010` |
+| `LAN_TRANSFER_ORIGIN` | 空 | 固定局域网 HTTPS Origin，可包含端口，例如 `https://files-lan.example.com:10010` |
 | `STUN_TRANSFER_DOMAIN` | 空 | STUN 高速通道域名，只填写主机名 |
 | `STUN_WEBHOOK_TOKEN` | 空 | 接收端口变化通知的 Bearer 令牌，至少 24 位 |
 | `TRANSFER_SIGNING_KEY` | 空 | 跨域上传和下载令牌的签名密钥，至少 32 位 |
