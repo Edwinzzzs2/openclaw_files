@@ -1,4 +1,4 @@
-const CACHE_NAME = "clawfiles-shell-v13";
+const CACHE_NAME = "clawfiles-shell-v15";
 const LAN_CONNECT_TIMEOUT = 2500;
 const STUN_CONNECT_TIMEOUT = 7000;
 const APP_SHELL = [

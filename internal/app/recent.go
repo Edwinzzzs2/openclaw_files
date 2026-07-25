@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -92,6 +94,38 @@ func (r *recentStore) list(limit int) ([]recentEntry, error) {
 		valid = valid[:limit]
 	}
 	return valid, nil
+}
+
+func (r *recentStore) remapPaths(remaps []pathRemap) error {
+	if len(remaps) == 0 {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entries, err := r.readUnlocked()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for index := range entries {
+		for _, remap := range remaps {
+			if entries[index].Path != remap.From &&
+				!strings.HasPrefix(entries[index].Path, remap.From+"/") {
+				continue
+			}
+			suffix := strings.TrimPrefix(entries[index].Path, remap.From)
+			entries[index].Path = strings.TrimPrefix(path.Clean("/"+remap.To+suffix), "/")
+			entries[index].ServerPath = r.paths.serverPath(entries[index].Path)
+			entries[index].Name = path.Base(entries[index].Path)
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return writeJSONFileAtomic(r.filePath, entries, 0o600)
 }
 
 func (r *recentStore) readUnlocked() ([]recentEntry, error) {

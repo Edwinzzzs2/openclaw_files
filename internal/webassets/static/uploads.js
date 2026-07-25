@@ -15,7 +15,7 @@ const IOS_SAFE_CHUNK_SIZE = 128 * 1024;
 const CLIENT_SAFE_CHUNK_SIZE = IOS_DEVICE
   ? IOS_SAFE_CHUNK_SIZE
   : DEFAULT_SAFE_CHUNK_SIZE;
-const LAN_PROBE_TIMEOUT = 2500;
+const LAN_PROBE_TIMEOUT = 4000;
 const LAN_PROBE_SUCCESS_CACHE = 30_000;
 const LAN_PROBE_FAILURE_CACHE = 10_000;
 const TRANSFER_DISCOVERY_TIMEOUT = 5000;
@@ -26,6 +26,7 @@ export class UploadQueue extends EventTarget {
   constructor() {
     super();
     this.items = [];
+    this.requiresForeground = IOS_DEVICE;
     this.activeCount = 0;
     this.lastProgressNotification = -Infinity;
     this.progressNotificationTimer = 0;
@@ -53,6 +54,7 @@ export class UploadQueue extends EventTarget {
         status: "queued",
         speed: 0,
         error: "",
+        pauseReason: "",
         result: null,
         abortController: null,
       };
@@ -66,6 +68,7 @@ export class UploadQueue extends EventTarget {
     const item = this.find(localID);
     if (!item || !["uploading", "retrying", "queued"].includes(item.status)) return;
     item.status = "paused";
+    item.pauseReason = "user";
     item.inflightBytes = 0;
     item.speed = 0;
     item.abortController?.abort();
@@ -76,9 +79,43 @@ export class UploadQueue extends EventTarget {
     const item = this.find(localID);
     if (!item || !["paused", "error"].includes(item.status)) return;
     item.status = "queued";
+    item.pauseReason = "";
     item.error = "";
     this.notify();
     this.pump();
+  }
+
+  pauseForBackground() {
+    if (!this.requiresForeground) return 0;
+    let paused = 0;
+    for (const item of this.items) {
+      if (!["uploading", "retrying", "queued"].includes(item.status)) continue;
+      item.status = "paused";
+      item.pauseReason = "background";
+      item.inflightBytes = 0;
+      item.speed = 0;
+      item.abortController?.abort();
+      paused++;
+    }
+    if (paused > 0) this.notify();
+    return paused;
+  }
+
+  resumeAfterBackground() {
+    if (!this.requiresForeground) return 0;
+    let resumed = 0;
+    for (const item of this.items) {
+      if (item.status !== "paused" || item.pauseReason !== "background") continue;
+      item.status = "queued";
+      item.pauseReason = "";
+      item.error = "";
+      resumed++;
+    }
+    if (resumed > 0) {
+      this.notify();
+      this.pump();
+    }
+    return resumed;
   }
 
   async cancel(localID) {
@@ -412,6 +449,7 @@ export class UploadQueue extends EventTarget {
     item.offset = item.file.size;
     item.inflightBytes = 0;
     item.status = "complete";
+    item.pauseReason = "";
     item.result = file;
     item.speed = 0;
     item.error = "";

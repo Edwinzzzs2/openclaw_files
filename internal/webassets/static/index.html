@@ -29,12 +29,10 @@
     <header class="topbar">
       <div class="topbar-inner">
         <a class="brand" href="#uploads" aria-label="ClawFiles 首页">claw<span>files</span></a>
-        <div class="server-status"><span class="status-mark"></span>服务器在线</div>
-        <button class="transfer-status" id="transfer-status" type="button"
-          data-route="checking" aria-live="polite" title="点击重新检测传输通道">
-          <span class="transfer-status-mark" aria-hidden="true"></span>
-          <span id="transfer-status-text">检测通道</span>
-        </button>
+        <div class="server-status" id="transfer-status" data-route="checking" aria-live="polite">
+          <span class="status-mark" aria-hidden="true"></span>
+          <span id="transfer-status-text">检测中</span>
+        </div>
         <nav class="desktop-nav" aria-label="主导航">
           <button class="nav-button active" type="button" data-view="uploads">上传</button>
           <button class="nav-button" type="button" data-view="files">文件</button>
@@ -101,6 +99,14 @@
           <strong id="upload-target-path"></strong>
         </section>
 
+        <aside class="ios-upload-notice" id="ios-upload-notice" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 8v4.5l2.75 1.75"/>
+            <circle cx="12" cy="12" r="8.25"/>
+          </svg>
+          <span>iPhone 切到后台会暂停，返回页面后自动续传；如果系统关闭了页面，重新选择同一文件即可继续。</span>
+        </aside>
+
         <label class="dropzone" id="dropzone" for="file-picker">
           <span class="dropzone-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M12 15.5V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13.5v5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-5"/></svg>
@@ -150,13 +156,17 @@
 
     <aside class="selection-bar" id="selection-bar" aria-live="polite" hidden>
       <div class="selection-summary">
-        <strong id="selection-count">已选择 0 项</strong>
-        <span>批量操作</span>
+        <div>
+          <strong id="selection-count">已选择 0 项</strong>
+          <span>批量操作</span>
+        </div>
+        <button class="selection-close" type="button" id="selection-clear" aria-label="取消选择">×</button>
       </div>
       <div class="selection-actions">
         <button type="button" id="selection-download">下载</button>
+        <button type="button" id="selection-rename">重命名</button>
+        <button type="button" id="selection-move">移动</button>
         <button class="danger" type="button" id="selection-delete">删除</button>
-        <button class="selection-close" type="button" id="selection-clear" aria-label="取消选择">×</button>
       </div>
     </aside>
 
@@ -183,7 +193,7 @@
         <span id="preview-meta"></span>
       </div>
       <div class="dialog-actions">
-        <a class="button" id="preview-download" href="#" download>下载</a>
+        <button class="button" id="preview-download" type="button">下载</button>
         <button class="icon-button" type="button" data-close-dialog="preview-dialog" aria-label="关闭预览">×</button>
       </div>
     </header>
@@ -208,10 +218,28 @@
     </form>
   </dialog>
 
+  <dialog class="dialog small-dialog" id="rename-dialog">
+    <form method="dialog" id="rename-form">
+      <header class="dialog-header">
+        <strong>重命名</strong>
+        <button class="icon-button" type="button" data-close-dialog="rename-dialog" aria-label="关闭">×</button>
+      </header>
+      <label class="field">
+        <span>新名称</span>
+        <input id="rename-input" type="text" maxlength="255" required />
+      </label>
+      <p class="form-error" id="rename-error" role="alert"></p>
+      <footer class="dialog-footer">
+        <button class="button" type="button" data-close-dialog="rename-dialog">取消</button>
+        <button class="button primary" id="confirm-rename-button" type="submit">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
   <dialog class="dialog small-dialog folder-picker" id="folder-picker-dialog">
     <header class="dialog-header">
       <div>
-        <strong>选择上传目录</strong>
+        <strong id="picker-title">选择上传目录</strong>
         <span id="picker-current-path"></span>
       </div>
       <button class="icon-button" type="button" data-close-dialog="folder-picker-dialog" aria-label="关闭">×</button>
@@ -238,6 +266,28 @@
     <footer class="dialog-footer delete-dialog-footer">
       <button class="button" type="button" data-close-dialog="delete-dialog">取消</button>
       <button class="button danger" id="confirm-delete-button" type="button">确认删除</button>
+    </footer>
+  </dialog>
+
+  <dialog class="dialog small-dialog download-dialog" id="download-dialog">
+    <header class="dialog-header">
+      <div>
+        <strong>保存文件</strong>
+        <span id="download-file-name"></span>
+      </div>
+      <button class="icon-button" type="button" data-close-dialog="download-dialog" aria-label="关闭">×</button>
+    </header>
+    <div class="download-dialog-body">
+      <p id="download-status">正在准备文件</p>
+      <div class="download-progress" id="download-progress" hidden
+        role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span id="download-progress-fill"></span>
+      </div>
+    </div>
+    <footer class="dialog-footer download-dialog-footer">
+      <button class="button" type="button" data-close-dialog="download-dialog">取消</button>
+      <button class="button" id="download-direct-button" type="button" hidden>使用系统下载</button>
+      <button class="button primary" id="download-save-button" type="button" hidden>存储到“文件”</button>
     </footer>
   </dialog>
 

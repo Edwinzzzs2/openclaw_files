@@ -86,6 +86,8 @@ func (s *Server) routes() http.Handler {
 
 	mux.HandleFunc("GET /api/files", s.handleListFiles)
 	mux.HandleFunc("POST /api/selection/delete", s.handleDeleteSelection)
+	mux.HandleFunc("POST /api/selection/rename", s.handleRenameSelection)
+	mux.HandleFunc("POST /api/selection/move", s.handleMoveSelection)
 	mux.HandleFunc("POST /api/folders", s.handleCreateFolder)
 	mux.HandleFunc("GET /api/content", s.handleContent)
 	mux.HandleFunc("HEAD /api/content", s.handleContent)

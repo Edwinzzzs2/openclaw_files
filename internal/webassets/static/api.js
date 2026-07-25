@@ -114,6 +114,20 @@ export function deleteSelection(directory, paths) {
   });
 }
 
+export function renameSelection(directory, path, name) {
+  return apiFetch("/api/selection/rename", {
+    method: "POST",
+    body: { directory, path, name },
+  });
+}
+
+export function moveSelection(directory, paths, destination) {
+  return apiFetch("/api/selection/move", {
+    method: "POST",
+    body: { directory, paths, destination },
+  });
+}
+
 export function loadRecent() {
   return apiFetch("/api/recent");
 }

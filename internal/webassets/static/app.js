@@ -9,24 +9,32 @@ import {
   loadTransferStatus,
   login,
   logout,
+  moveSelection,
   prepareSelectionArchive,
   probeTransferEndpoint,
+  renameSelection,
   session,
 } from "./api.js";
 import { UploadQueue } from "./uploads.js";
 
 const TRANSFER_DISCOVERY_TIMEOUT = 5000;
-const LAN_STATUS_TIMEOUT = 2500;
+const LAN_STATUS_TIMEOUT = 4000;
 const STUN_STATUS_TIMEOUT = 7000;
+const IOS_NATIVE_SAVE_LIMIT = 64 * 1024 * 1024;
 
 const state = {
   currentPath: "",
   entries: [],
   uploadTarget: "",
   pickerPath: "",
+  pickerPurpose: "upload",
   selectedPaths: new Set(),
   view: "uploads",
   transferRoute: "checking",
+  previewEntry: null,
+  downloadEntry: null,
+  downloadFile: null,
+  downloadController: null,
 };
 
 const uploadQueue = new UploadQueue();
@@ -55,9 +63,12 @@ const elements = {
   selectionBar: document.querySelector("#selection-bar"),
   selectionCount: document.querySelector("#selection-count"),
   selectionDownload: document.querySelector("#selection-download"),
+  selectionRename: document.querySelector("#selection-rename"),
+  selectionMove: document.querySelector("#selection-move"),
   selectionDelete: document.querySelector("#selection-delete"),
   selectionClear: document.querySelector("#selection-clear"),
   uploadTargetPath: document.querySelector("#upload-target-path"),
+  iosUploadNotice: document.querySelector("#ios-upload-notice"),
   chooseTargetButton: document.querySelector("#choose-target-button"),
   filePicker: document.querySelector("#file-picker"),
   dropzone: document.querySelector("#dropzone"),
@@ -77,7 +88,13 @@ const elements = {
   folderForm: document.querySelector("#folder-form"),
   folderNameInput: document.querySelector("#folder-name-input"),
   folderError: document.querySelector("#folder-error"),
+  renameDialog: document.querySelector("#rename-dialog"),
+  renameForm: document.querySelector("#rename-form"),
+  renameInput: document.querySelector("#rename-input"),
+  renameError: document.querySelector("#rename-error"),
+  confirmRenameButton: document.querySelector("#confirm-rename-button"),
   pickerDialog: document.querySelector("#folder-picker-dialog"),
+  pickerTitle: document.querySelector("#picker-title"),
   pickerCurrentPath: document.querySelector("#picker-current-path"),
   pickerList: document.querySelector("#picker-list"),
   pickerUpButton: document.querySelector("#picker-up-button"),
@@ -85,6 +102,13 @@ const elements = {
   deleteDialog: document.querySelector("#delete-dialog"),
   deleteSummary: document.querySelector("#delete-summary"),
   confirmDeleteButton: document.querySelector("#confirm-delete-button"),
+  downloadDialog: document.querySelector("#download-dialog"),
+  downloadFileName: document.querySelector("#download-file-name"),
+  downloadStatus: document.querySelector("#download-status"),
+  downloadProgress: document.querySelector("#download-progress"),
+  downloadProgressFill: document.querySelector("#download-progress-fill"),
+  downloadDirectButton: document.querySelector("#download-direct-button"),
+  downloadSaveButton: document.querySelector("#download-save-button"),
   toast: document.querySelector("#toast"),
   toastTitle: document.querySelector("#toast-title"),
   toastMessage: document.querySelector("#toast-message"),
@@ -98,6 +122,7 @@ initialize();
 
 async function initialize() {
   initializeTheme();
+  elements.iosUploadNotice.hidden = !uploadQueue.requiresForeground;
   bindEvents();
   registerServiceWorker();
 
@@ -117,7 +142,6 @@ function bindEvents() {
   elements.loginForm.addEventListener("submit", handleLogin);
   elements.logoutButton.addEventListener("click", handleLogout);
   elements.themeButton.addEventListener("click", toggleTheme);
-  elements.transferStatus.addEventListener("click", detectTransferRoute);
   elements.searchInput.addEventListener("input", renderFiles);
   elements.newFolderButton.addEventListener("click", openFolderDialog);
   elements.filesUploadButton.addEventListener("click", () => {
@@ -144,9 +168,20 @@ function bindEvents() {
   elements.pickerList.addEventListener("click", handlePickerClick);
   elements.selectAllCheckbox.addEventListener("change", toggleVisibleSelection);
   elements.selectionDownload.addEventListener("click", downloadSelected);
+  elements.selectionRename.addEventListener("click", openRenameDialog);
+  elements.selectionMove.addEventListener("click", openMovePicker);
   elements.selectionDelete.addEventListener("click", openDeleteDialog);
   elements.selectionClear.addEventListener("click", clearSelection);
   elements.confirmDeleteButton.addEventListener("click", confirmDeleteSelection);
+  elements.renameForm.addEventListener("submit", handleRenameSelection);
+  elements.previewDownload.addEventListener("click", () => {
+    const entry = state.previewEntry;
+    if (!entry) return;
+    elements.previewDialog.close();
+    startDownload(entry);
+  });
+  elements.downloadSaveButton.addEventListener("click", savePreparedDownload);
+  elements.downloadDirectButton.addEventListener("click", useSystemDownload);
 
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.view));
@@ -156,6 +191,7 @@ function bindEvents() {
   });
 
   elements.previewDialog.addEventListener("close", clearPreview);
+  elements.downloadDialog.addEventListener("close", clearDownloadDialog);
   window.addEventListener("clawfiles:auth-required", () => showLogin("登录状态已失效"));
   window.addEventListener("hashchange", () => {
     const requested = location.hash.replace(/^#/, "");
@@ -193,7 +229,28 @@ function bindEvents() {
     }
   });
   window.addEventListener("online", detectTransferRoute);
+  window.addEventListener("pageshow", () => {
+    if (Date.now() - lastTransferRouteCheck > 30_000) detectTransferRoute();
+  });
+  navigator.connection?.addEventListener("change", detectTransferRoute);
+  window.setInterval(() => {
+    if (
+      document.visibilityState === "visible" &&
+      !elements.appShell.hidden &&
+      Date.now() - lastTransferRouteCheck > 60_000
+    ) {
+      detectTransferRoute();
+    }
+  }, 60_000);
   document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      uploadQueue.pauseForBackground();
+      return;
+    }
+    const resumedUploads = uploadQueue.resumeAfterBackground();
+    if (resumedUploads > 0) {
+      showToast("继续上传", `${resumedUploads} 个任务已从服务器进度继续`);
+    }
     if (
       document.visibilityState === "visible" &&
       Date.now() - lastTransferRouteCheck > 30_000
@@ -297,20 +354,20 @@ async function probeRoute(origin, timeoutMilliseconds) {
 function renderTransferStatus(route) {
   const states = {
     checking: {
-      label: "检测通道",
+      label: "检测中",
       title: "正在检测局域网和 STUN 通道",
     },
     lan: {
-      label: "局域网直连",
-      title: "上传和下载优先走局域网，点击重新检测",
+      label: "局域网在线",
+      title: "上传和下载优先使用局域网",
     },
     stun: {
-      label: "STUN 通道",
-      title: "局域网不可用，当前优先使用 STUN，点击重新检测",
+      label: "STUN 通道在线",
+      title: "局域网不可用，当前优先使用 STUN 通道",
     },
     stable: {
-      label: "中转通道",
-      title: "局域网和 STUN 不可用，当前使用中转，点击重新检测",
+      label: "中转在线",
+      title: "局域网和 STUN 不可用，当前使用中转通道",
     },
   };
   const nextRoute = states[route] ? route : "stable";
@@ -509,6 +566,11 @@ function renderSelectionBar() {
 
   elements.selectionBar.hidden = selected.length === 0 || state.view !== "files";
   elements.selectionCount.textContent = `已选择 ${selected.length} 项`;
+  elements.selectionRename.disabled = selected.length !== 1;
+  elements.selectionRename.title = selected.length === 1
+    ? `重命名 ${selected[0].name}`
+    : "每次只能重命名一个项目";
+  elements.selectionMove.disabled = selected.length === 0;
   elements.selectAllCheckbox.checked = allVisibleSelected;
   elements.selectAllCheckbox.indeterminate = visibleSelectedCount > 0 && !allVisibleSelected;
   document.body.classList.toggle(
@@ -534,6 +596,60 @@ function toggleVisibleSelection() {
 function clearSelection() {
   state.selectedPaths.clear();
   renderFiles();
+}
+
+function openRenameDialog() {
+  const entries = selectedEntries();
+  if (entries.length !== 1) return;
+  const entry = entries[0];
+  elements.renameError.textContent = "";
+  elements.renameInput.value = entry.name;
+  elements.renameDialog.showModal();
+  queueMicrotask(() => {
+    elements.renameInput.focus();
+    const extensionIndex = entry.type === "file"
+      ? entry.name.lastIndexOf(".")
+      : -1;
+    const selectionEnd = extensionIndex > 0 ? extensionIndex : entry.name.length;
+    elements.renameInput.setSelectionRange(0, selectionEnd);
+  });
+}
+
+async function handleRenameSelection(event) {
+  event.preventDefault();
+  const entries = selectedEntries();
+  if (entries.length !== 1) {
+    elements.renameDialog.close();
+    return;
+  }
+  elements.renameError.textContent = "";
+  elements.confirmRenameButton.disabled = true;
+  try {
+    await renameSelection(
+      state.currentPath,
+      entries[0].path,
+      elements.renameInput.value,
+    );
+    elements.renameDialog.close();
+    state.selectedPaths.clear();
+    await loadDirectory(state.currentPath);
+    showToast("重命名完成", elements.renameInput.value.trim());
+  } catch (error) {
+    elements.renameError.textContent = error?.message || "重命名失败";
+  } finally {
+    elements.confirmRenameButton.disabled = false;
+  }
+}
+
+async function openMovePicker() {
+  const entries = selectedEntries();
+  if (!entries.length) return;
+  state.pickerPurpose = "move";
+  state.pickerPath = "";
+  elements.pickerTitle.textContent = `移动 ${entries.length} 个项目`;
+  elements.pickerConfirmButton.textContent = "移动到这里";
+  elements.pickerDialog.showModal();
+  await renderPicker();
 }
 
 async function downloadSelected() {
@@ -811,7 +927,10 @@ async function refreshRecent() {
 }
 
 async function openFolderPicker() {
+  state.pickerPurpose = "upload";
   state.pickerPath = state.uploadTarget;
+  elements.pickerTitle.textContent = "选择上传目录";
+  elements.pickerConfirmButton.textContent = "选择当前目录";
   elements.pickerDialog.showModal();
   await renderPicker();
 }
@@ -823,6 +942,21 @@ async function renderPicker() {
     state.pickerPath = response.path;
     elements.pickerCurrentPath.textContent = formatDirectoryPath(response.path);
     elements.pickerUpButton.disabled = !response.path;
+    if (state.pickerPurpose === "move") {
+      const invalidDestination = response.path === state.currentPath ||
+        selectedEntries().some((entry) =>
+          entry.type === "directory" &&
+          (response.path === entry.path ||
+            response.path.startsWith(`${entry.path}/`))
+        );
+      elements.pickerConfirmButton.disabled = invalidDestination;
+      elements.pickerConfirmButton.title = invalidDestination
+        ? "不能移动到当前目录、项目自身或其子目录"
+        : "";
+    } else {
+      elements.pickerConfirmButton.disabled = false;
+      elements.pickerConfirmButton.title = "";
+    }
     const directories = response.entries.filter((entry) => entry.type === "directory");
     elements.pickerList.innerHTML = directories.length
       ? directories.map((entry) => `
@@ -850,16 +984,38 @@ function pickerGoUp() {
   renderPicker();
 }
 
-function confirmPickerPath() {
-  setUploadTarget(state.pickerPath);
-  elements.pickerDialog.close();
+async function confirmPickerPath() {
+  if (state.pickerPurpose === "upload") {
+    setUploadTarget(state.pickerPath);
+    elements.pickerDialog.close();
+    return;
+  }
+  const entries = selectedEntries();
+  if (!entries.length) {
+    elements.pickerDialog.close();
+    return;
+  }
+  elements.pickerConfirmButton.disabled = true;
+  try {
+    await moveSelection(
+      state.currentPath,
+      entries.map((entry) => entry.path),
+      state.pickerPath,
+    );
+    elements.pickerDialog.close();
+    state.selectedPaths.clear();
+    await loadDirectory(state.currentPath);
+    showToast("移动完成", `已移动 ${entries.length} 个项目`);
+  } catch (error) {
+    showToast("移动失败", error?.message || "请求失败");
+    elements.pickerConfirmButton.disabled = false;
+  }
 }
 
 async function openPreview(entry) {
+  state.previewEntry = entry;
   elements.previewTitle.textContent = entry.name;
   elements.previewMeta.textContent = `${formatBytes(entry.size)}，${formatDate(entry.modifiedAt)}`;
-  elements.previewDownload.href = downloadURL(entry.path);
-  elements.previewDownload.download = entry.name;
   elements.previewContent.replaceChildren();
   elements.previewDialog.showModal();
 
@@ -922,17 +1078,166 @@ async function openPreview(entry) {
 }
 
 function clearPreview() {
+  state.previewEntry = null;
   elements.previewContent.replaceChildren();
-  elements.previewDownload.removeAttribute("href");
 }
 
 function startDownload(entry) {
+  if (uploadQueue.requiresForeground) {
+    if (canUseNativeFileSave(entry)) {
+      prepareNativeDownload(entry);
+    } else {
+      openSystemDownloadDialog(entry);
+    }
+    return;
+  }
+  triggerSystemDownload(entry);
+}
+
+function triggerSystemDownload(entry) {
   const anchor = document.createElement("a");
   anchor.href = downloadURL(entry.path);
   anchor.download = entry.name;
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
+}
+
+function canUseNativeFileSave(entry) {
+  return entry?.type !== "directory" &&
+    entry.size <= IOS_NATIVE_SAVE_LIMIT &&
+    typeof File === "function" &&
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function";
+}
+
+function openSystemDownloadDialog(entry) {
+  clearDownloadState();
+  state.downloadEntry = entry;
+  elements.downloadFileName.textContent = entry.name;
+  elements.downloadStatus.textContent =
+    "这个文件较大，将使用 iPhone 系统下载。系统页面打开后，可点分享按钮选择“存储到文件”，左上角 × 可返回。";
+  elements.downloadProgress.hidden = true;
+  elements.downloadSaveButton.hidden = true;
+  elements.downloadDirectButton.hidden = false;
+  elements.downloadDialog.showModal();
+}
+
+async function prepareNativeDownload(entry) {
+  clearDownloadState();
+  state.downloadEntry = entry;
+  state.downloadController = new AbortController();
+  elements.downloadFileName.textContent = entry.name;
+  elements.downloadStatus.textContent = `正在准备 ${formatBytes(entry.size)}`;
+  elements.downloadProgress.hidden = false;
+  elements.downloadProgress.setAttribute("aria-valuenow", "0");
+  elements.downloadProgressFill.style.width = "0%";
+  elements.downloadSaveButton.hidden = true;
+  elements.downloadDirectButton.hidden = true;
+  elements.downloadDialog.showModal();
+
+  try {
+    const file = await fetchDownloadFile(
+      entry,
+      state.downloadController.signal,
+      (loaded, total) => {
+        if (!elements.downloadDialog.open) return;
+        const percent = total > 0 ? Math.min(100, (loaded / total) * 100) : 0;
+        elements.downloadProgress.setAttribute("aria-valuenow", String(Math.round(percent)));
+        elements.downloadProgressFill.style.width = `${percent}%`;
+        elements.downloadStatus.textContent =
+          `正在准备 ${formatBytes(loaded)} / ${formatBytes(total || entry.size)}`;
+      },
+    );
+    if (!elements.downloadDialog.open) return;
+    if (!navigator.canShare({ files: [file] })) {
+      throw new Error("当前系统不支持直接存储这个文件");
+    }
+    state.downloadFile = file;
+    elements.downloadProgress.hidden = true;
+    elements.downloadStatus.textContent = "文件已准备好，点击下方按钮后选择“存储到文件”。";
+    elements.downloadSaveButton.hidden = false;
+  } catch (error) {
+    if (error?.name === "AbortError" || !elements.downloadDialog.open) return;
+    elements.downloadProgress.hidden = true;
+    elements.downloadStatus.textContent =
+      `${error?.message || "文件准备失败"}，可以改用系统下载。`;
+    elements.downloadDirectButton.hidden = false;
+  }
+}
+
+async function fetchDownloadFile(entry, signal, onProgress) {
+  const response = await fetch(downloadURL(entry.path), {
+    credentials: "same-origin",
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    throw new APIError(`下载失败 (${response.status})`, response.status);
+  }
+  const contentType = response.headers.get("Content-Type") ||
+    entry.mime ||
+    "application/octet-stream";
+  const total = Number(response.headers.get("Content-Length")) || entry.size;
+  if (!response.body?.getReader) {
+    const blob = await response.blob();
+    onProgress(blob.size, total || blob.size);
+    return new File([blob], entry.name, { type: contentType });
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    onProgress(loaded, total);
+  }
+  return new File(chunks, entry.name, {
+    type: contentType,
+    lastModified: new Date(entry.modifiedAt).valueOf() || Date.now(),
+  });
+}
+
+async function savePreparedDownload() {
+  if (!state.downloadFile) return;
+  try {
+    await navigator.share({
+      files: [state.downloadFile],
+      title: state.downloadFile.name,
+    });
+    elements.downloadDialog.close();
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      elements.downloadStatus.textContent = error?.message || "无法打开系统存储菜单";
+      elements.downloadDirectButton.hidden = false;
+    }
+  }
+}
+
+function useSystemDownload() {
+  const entry = state.downloadEntry;
+  elements.downloadDialog.close();
+  if (!entry) return;
+  showToast("系统下载已打开", "如出现文件预览，请使用分享按钮选择“存储到文件”。");
+  triggerSystemDownload(entry);
+}
+
+function clearDownloadDialog() {
+  state.downloadController?.abort();
+  clearDownloadState();
+}
+
+function clearDownloadState() {
+  state.downloadController?.abort();
+  state.downloadController = null;
+  state.downloadEntry = null;
+  state.downloadFile = null;
+  elements.downloadProgress.hidden = true;
+  elements.downloadSaveButton.hidden = true;
+  elements.downloadDirectButton.hidden = true;
 }
 
 function closeDialog(id) {
@@ -990,7 +1295,9 @@ function uploadStatusText(item) {
     case "retrying":
       return "正在重试";
     case "paused":
-      return "已暂停";
+      return item.pauseReason === "background"
+        ? "已在后台暂停"
+        : "已暂停";
     case "complete":
       return "上传完成";
     case "error":
