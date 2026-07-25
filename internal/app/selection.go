@@ -170,12 +170,21 @@ func (s *Server) handleSelectionArchivePlan(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	fallbackURL := "/api/selection/archive/" + request.ID
+	lanURL := ""
 	directURL := ""
-	if _, endpoint := s.transfer.snapshot(); endpoint != "" {
+	_, endpoint := s.transfer.snapshot()
+	if s.config.LANTransferOrigin != "" || endpoint != "" {
 		token := s.transfer.signToken("archive", request.ID, contentTokenLifetime)
-		directURL = endpoint + fallbackURL + "?transfer_token=" + url.QueryEscape(token)
+		transferPath := fallbackURL + "?transfer_token=" + url.QueryEscape(token)
+		if s.config.LANTransferOrigin != "" {
+			lanURL = s.config.LANTransferOrigin + transferPath
+		}
+		if endpoint != "" {
+			directURL = endpoint + transferPath
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
+		"lanUrl":      lanURL,
 		"directUrl":   directURL,
 		"fallbackUrl": fallbackURL,
 	})

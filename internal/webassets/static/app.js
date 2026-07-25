@@ -587,9 +587,13 @@ function updateUploadItem(element, item) {
       );
   const percentLabel = Number.isInteger(percent) ? String(percent) : percent.toFixed(1);
   const statusText = uploadStatusText(item);
-  const route = item.status !== "complete" && item.route === "stun"
-    ? "STUN 高速通道"
-    : "";
+  const route = item.status === "complete"
+    ? ""
+    : item.route === "lan"
+      ? "局域网直连"
+      : item.route === "stun"
+        ? "STUN 高速通道"
+        : "";
   const timingActive = ["uploading", "retrying"].includes(item.status) &&
     remainingBytes > 0;
   const speed = item.speed > 0

@@ -246,10 +246,12 @@ func (s *Server) handleSTUNWebhook(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetTransfer(w http.ResponseWriter, _ *http.Request) {
 	state, endpoint := s.transfer.snapshot()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":   s.transfer.enabled(),
-		"available": endpoint != "",
-		"baseUrl":   endpoint,
-		"updatedAt": state.UpdatedAt,
+		"enabled":     s.transfer.enabled(),
+		"available":   s.config.LANTransferOrigin != "" || endpoint != "",
+		"lanBaseUrl":  s.config.LANTransferOrigin,
+		"stunBaseUrl": endpoint,
+		"baseUrl":     endpoint,
+		"updatedAt":   state.UpdatedAt,
 	})
 }
 
@@ -283,12 +285,20 @@ func (s *Server) handleTransferContentPlan(w http.ResponseWriter, r *http.Reques
 	}
 	fallbackURL := "/api/content?" + query.Encode()
 	_, endpoint := s.transfer.snapshot()
+	lanURL := ""
 	directURL := ""
-	if endpoint != "" {
+	if s.config.LANTransferOrigin != "" || endpoint != "" {
 		query.Set("transfer_token", s.transfer.signToken("content", relative, contentTokenLifetime))
-		directURL = endpoint + "/api/content?" + query.Encode()
+		transferPath := "/api/content?" + query.Encode()
+		if s.config.LANTransferOrigin != "" {
+			lanURL = s.config.LANTransferOrigin + transferPath
+		}
+		if endpoint != "" {
+			directURL = endpoint + transferPath
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
+		"lanUrl":      lanURL,
 		"directUrl":   directURL,
 		"fallbackUrl": fallbackURL,
 	})
@@ -349,6 +359,9 @@ func (s *Server) transferCORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Expose-Headers",
 			"Accept-Ranges, Content-Disposition, Content-Length, Content-Range, Upload-Length, Upload-Offset")
 		w.Header().Set("Access-Control-Max-Age", "600")
+		if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+			w.Header().Set("Access-Control-Allow-Private-Network", "true")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

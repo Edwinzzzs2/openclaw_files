@@ -1,4 +1,6 @@
-const CACHE_NAME = "clawfiles-shell-v10";
+const CACHE_NAME = "clawfiles-shell-v11";
+const LAN_CONNECT_TIMEOUT = 2500;
+const STUN_CONNECT_TIMEOUT = 7000;
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -94,18 +96,12 @@ async function fetchSelectionArchive(url) {
     plan = null;
   }
 
-  if (plan?.directUrl) {
-    try {
-      const directResponse = await fetch(plan.directUrl, {
-        method: "GET",
-        credentials: "omit",
-        cache: "no-store",
-      });
-      if (directResponse.ok) return directResponse;
-    } catch {
-      // Fall through to the stable origin.
-    }
-  }
+  const transferResponse = await fetchPreferredTransfer(plan, {
+    method: "GET",
+    credentials: "omit",
+    cache: "no-store",
+  });
+  if (transferResponse) return transferResponse;
 
   return fetch(
     plan?.fallbackUrl || `/api/selection/archive/${encodeURIComponent(id)}`,
@@ -142,19 +138,13 @@ async function fetchTransferContent(request, url) {
     plan = null;
   }
 
-  if (plan?.directUrl) {
-    try {
-      const directResponse = await fetch(plan.directUrl, {
-        method: "GET",
-        headers,
-        credentials: "omit",
-        cache: "no-store",
-      });
-      if (directResponse.ok) return directResponse;
-    } catch {
-      // Fall through to the stable origin.
-    }
-  }
+  const transferResponse = await fetchPreferredTransfer(plan, {
+    method: "GET",
+    headers,
+    credentials: "omit",
+    cache: "no-store",
+  });
+  if (transferResponse) return transferResponse;
 
   const fallbackURL = plan?.fallbackUrl ||
     `/api/content?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
@@ -164,4 +154,37 @@ async function fetchTransferContent(request, url) {
     credentials: "same-origin",
     cache: "no-store",
   });
+}
+
+async function fetchPreferredTransfer(plan, options) {
+  const candidates = [
+    { url: plan?.lanUrl, timeout: LAN_CONNECT_TIMEOUT },
+    { url: plan?.directUrl, timeout: STUN_CONNECT_TIMEOUT },
+  ];
+  for (const candidate of candidates) {
+    if (!candidate.url) continue;
+    const response = await fetchTransferCandidate(
+      candidate.url,
+      options,
+      candidate.timeout,
+    );
+    if (response?.ok) return response;
+    await response?.body?.cancel();
+  }
+  return null;
+}
+
+async function fetchTransferCandidate(url, options, timeout) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }

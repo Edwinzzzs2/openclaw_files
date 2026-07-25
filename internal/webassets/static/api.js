@@ -108,6 +108,33 @@ export function getUpload(id) {
   return apiFetch(`/api/uploads/${encodeURIComponent(id)}`);
 }
 
+export async function probeUploadEndpoint(id, baseURL, transferToken, signal) {
+  const origin = String(baseURL || "").replace(/\/+$/, "");
+  if (!origin || !transferToken) {
+    throw new APIError("传输通道配置无效", 0);
+  }
+  let response;
+  try {
+    response = await fetch(`${origin}/api/uploads/${encodeURIComponent(id)}`, {
+      method: "HEAD",
+      headers: {
+        "Accept": "application/json",
+        "X-ClawFiles-Transfer-Token": transferToken,
+      },
+      credentials: "omit",
+      cache: "no-store",
+      signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    throw new APIError("传输通道不可用", 0);
+  }
+  if (!response.ok) {
+    throw new APIError(`传输通道不可用 (${response.status})`, response.status);
+  }
+  return true;
+}
+
 export function uploadChunk(id, offset, chunk, signal, onProgress, options = {}) {
   return new Promise((resolve, reject) => {
     const noProgressTimeout = 20_000;

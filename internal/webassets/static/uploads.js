@@ -4,6 +4,7 @@ import {
   createUpload,
   getUpload,
   loadTransferStatus,
+  probeUploadEndpoint,
   uploadChunk,
 } from "./api.js";
 
@@ -14,6 +15,10 @@ const IOS_SAFE_CHUNK_SIZE = 128 * 1024;
 const CLIENT_SAFE_CHUNK_SIZE = IOS_DEVICE
   ? IOS_SAFE_CHUNK_SIZE
   : DEFAULT_SAFE_CHUNK_SIZE;
+const LAN_PROBE_TIMEOUT = 2500;
+const LAN_PROBE_SUCCESS_CACHE = 30_000;
+const LAN_PROBE_FAILURE_CACHE = 10_000;
+const TRANSFER_DISCOVERY_TIMEOUT = 5000;
 const RETRY_DELAYS = [1000, 2500, 5000];
 let nextLocalID = 1;
 
@@ -24,6 +29,10 @@ export class UploadQueue extends EventTarget {
     this.activeCount = 0;
     this.lastProgressNotification = -Infinity;
     this.progressNotificationTimer = 0;
+    this.lanProbeEndpoint = "";
+    this.lanProbeAvailable = false;
+    this.lanProbeCheckedAt = 0;
+    this.lanProbePromise = null;
   }
 
   addFiles(files, directory) {
@@ -38,6 +47,8 @@ export class UploadQueue extends EventTarget {
         chunkSize: CLIENT_SAFE_CHUNK_SIZE,
         transferToken: "",
         transferEndpoint: "",
+        lanEndpoint: "",
+        stunEndpoint: "",
         route: "stable",
         status: "queued",
         speed: 0,
@@ -131,7 +142,8 @@ export class UploadQueue extends EventTarget {
     item.offset = status.offset;
     item.chunkSize = Math.min(status.chunkSize, CLIENT_SAFE_CHUNK_SIZE);
     item.transferToken = status.transferToken || "";
-    await this.refreshTransferRoute(item);
+    await this.selectInitialTransferRoute(item);
+    this.notify();
     if (status.completed) {
       this.finish(item, status.file);
       return;
@@ -197,24 +209,150 @@ export class UploadQueue extends EventTarget {
     return status;
   }
 
-  async refreshTransferRoute(item) {
+  async refreshTransferPlan(item) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), TRANSFER_DISCOVERY_TIMEOUT);
     try {
       const transfer = await loadTransferStatus({ signal: controller.signal });
-      if (transfer.available && transfer.baseUrl && item.transferToken) {
-        item.transferEndpoint = transfer.baseUrl;
-        item.route = "stun";
-        return true;
-      }
+      item.lanEndpoint = normalizeEndpoint(transfer.lanBaseUrl);
+      item.stunEndpoint = normalizeEndpoint(
+        transfer.stunBaseUrl || transfer.baseUrl,
+      );
+      return true;
     } catch {
-      // The stable origin remains usable when transfer discovery fails.
+      return false;
     } finally {
       clearTimeout(timeout);
     }
-    item.transferEndpoint = "";
-    item.route = "stable";
-    return false;
+  }
+
+  async selectInitialTransferRoute(item) {
+    await this.refreshTransferPlan(item);
+    await this.selectPreferredTransferRoute(item);
+  }
+
+  async selectPreferredTransferRoute(item) {
+    if (
+      item.lanEndpoint &&
+      item.transferToken &&
+      await this.probeLANEndpoint(item)
+    ) {
+      this.setTransferRoute(item, "lan", item.lanEndpoint);
+      return;
+    }
+    if (item.stunEndpoint && item.transferToken) {
+      this.setTransferRoute(item, "stun", item.stunEndpoint);
+      return;
+    }
+    this.setTransferRoute(item, "stable", "");
+  }
+
+  async probeLANEndpoint(item) {
+    const endpoint = item.lanEndpoint;
+    const cacheDuration = this.lanProbeAvailable
+      ? LAN_PROBE_SUCCESS_CACHE
+      : LAN_PROBE_FAILURE_CACHE;
+    if (
+      endpoint === this.lanProbeEndpoint &&
+      this.lanProbeCheckedAt > 0 &&
+      Date.now() - this.lanProbeCheckedAt < cacheDuration
+    ) {
+      return this.lanProbeAvailable;
+    }
+    if (endpoint === this.lanProbeEndpoint && this.lanProbePromise) {
+      return this.lanProbePromise;
+    }
+
+    const probe = this.performLANProbe(item);
+    this.lanProbeEndpoint = endpoint;
+    this.lanProbePromise = probe;
+    try {
+      const available = await probe;
+      if (this.lanProbeEndpoint === endpoint && this.lanProbePromise === probe) {
+        this.lanProbeAvailable = available;
+        this.lanProbeCheckedAt = Date.now();
+      }
+      return available;
+    } finally {
+      if (this.lanProbePromise === probe) this.lanProbePromise = null;
+    }
+  }
+
+  async performLANProbe(item) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), LAN_PROBE_TIMEOUT);
+    try {
+      await probeUploadEndpoint(
+        item.remoteID,
+        item.lanEndpoint,
+        item.transferToken,
+        controller.signal,
+      );
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async advanceTransferRoute(item) {
+    const failedRoute = item.route;
+    const failedEndpoint = item.transferEndpoint;
+    await this.refreshTransferPlan(item);
+
+    if (failedRoute === "lan") {
+      this.lanProbeAvailable = false;
+      this.lanProbeCheckedAt = Date.now();
+      if (item.stunEndpoint && item.transferToken) {
+        this.setTransferRoute(item, "stun", item.stunEndpoint);
+      } else {
+        this.setTransferRoute(item, "stable", "");
+      }
+      return;
+    }
+    if (
+      failedRoute === "stun" &&
+      item.stunEndpoint &&
+      item.transferToken &&
+      item.stunEndpoint !== failedEndpoint
+    ) {
+      this.setTransferRoute(item, "stun", item.stunEndpoint);
+      return;
+    }
+    if (failedRoute === "stable") {
+      await this.selectPreferredTransferRoute(item);
+      return;
+    }
+    this.setTransferRoute(item, "stable", "");
+  }
+
+  setTransferRoute(item, route, endpoint) {
+    item.transferEndpoint = endpoint;
+    item.route = route;
+  }
+
+  transferRetryMessage(failedRoute, nextRoute) {
+    if (failedRoute === "lan" && nextRoute === "stun") {
+      return "局域网不可用，正在切换高速通道";
+    }
+    if (failedRoute === "lan") {
+      return "局域网不可用，正在通过稳定通道重试";
+    }
+    if (failedRoute === "stun" && nextRoute === "stun") {
+      return "高速通道已更新，正在重试";
+    }
+    if (failedRoute === "stun") {
+      return "高速通道不可用，正在通过稳定通道重试";
+    }
+    return "网络异常，正在重试";
+  }
+
+  shouldAdvanceTransferRoute(item, error) {
+    if (!(error instanceof APIError)) return false;
+    if (error.status === 0) return true;
+    return item.route !== "stable" &&
+      [401, 403, 404, 413, 421, 502, 503, 504].includes(error.status);
   }
 
   async sendWithRetry(item, chunk, chunkLength) {
@@ -249,19 +387,14 @@ export class UploadQueue extends EventTarget {
           item.transferToken = status.transferToken || item.transferToken;
           return status;
         }
-        if (error instanceof APIError && error.status === 0) {
-          const previousEndpoint = item.transferEndpoint;
-          const foundTransfer = await this.refreshTransferRoute(item);
-          if (foundTransfer && item.transferEndpoint === previousEndpoint) {
-            item.transferEndpoint = "";
-            item.route = "stable";
-          }
+        if (this.shouldAdvanceTransferRoute(item, error)) {
+          const failedRoute = item.route;
+          await this.advanceTransferRoute(item);
+          item.error = this.transferRetryMessage(failedRoute, item.route);
         }
         if (attempt >= RETRY_DELAYS.length) break;
         item.status = "retrying";
-        item.error = item.route === "stun"
-          ? "高速通道已更新，正在重试"
-          : "网络异常，正在重试";
+        if (!item.error) item.error = "网络异常，正在重试";
         this.notify();
         await wait(RETRY_DELAYS[attempt]);
       }
@@ -316,6 +449,10 @@ export class UploadQueue extends EventTarget {
 
 function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function normalizeEndpoint(value) {
+  return String(value || "").replace(/\/+$/, "");
 }
 
 function isIOSDevice() {

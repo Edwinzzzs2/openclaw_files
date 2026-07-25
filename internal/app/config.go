@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,6 +23,7 @@ type Config struct {
 	CookieSecure       bool
 	MaxUploadSize      int64
 	UploadChunkSize    int64
+	LANTransferOrigin  string
 	STUNTransferDomain string
 	STUNWebhookToken   string
 	TransferSigningKey string
@@ -36,6 +38,7 @@ func LoadConfig() (Config, error) {
 		CookieSecure:       envBool("COOKIE_SECURE", false),
 		MaxUploadSize:      envInt64("MAX_UPLOAD_SIZE", defaultMaxUploadSize),
 		UploadChunkSize:    envInt64("UPLOAD_CHUNK_SIZE", defaultChunkSize),
+		LANTransferOrigin:  strings.TrimSpace(os.Getenv("LAN_TRANSFER_ORIGIN")),
 		STUNTransferDomain: strings.TrimSpace(os.Getenv("STUN_TRANSFER_DOMAIN")),
 		STUNWebhookToken:   strings.TrimSpace(os.Getenv("STUN_WEBHOOK_TOKEN")),
 		TransferSigningKey: strings.TrimSpace(os.Getenv("TRANSFER_SIGNING_KEY")),
@@ -90,8 +93,41 @@ func LoadConfig() (Config, error) {
 			return Config{}, fmt.Errorf("TRANSFER_SIGNING_KEY must contain at least 32 characters")
 		}
 	}
+	if cfg.LANTransferOrigin != "" {
+		if transferValues != 3 {
+			return Config{}, fmt.Errorf("LAN_TRANSFER_ORIGIN requires STUN transfer signing configuration")
+		}
+		origin, err := normalizeLANTransferOrigin(cfg.LANTransferOrigin)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.LANTransferOrigin = origin
+	}
 
 	return cfg, nil
+}
+
+func normalizeLANTransferOrigin(value string) (string, error) {
+	parsed, err := url.Parse(value)
+	if err != nil ||
+		!strings.EqualFold(parsed.Scheme, "https") ||
+		parsed.Host == "" ||
+		parsed.User != nil ||
+		(parsed.Path != "" && parsed.Path != "/") ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" {
+		return "", fmt.Errorf("LAN_TRANSFER_ORIGIN must be an HTTPS origin without path, query or fragment")
+	}
+	if !validTransferDomain(parsed.Hostname()) {
+		return "", fmt.Errorf("LAN_TRANSFER_ORIGIN hostname is invalid")
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return "", fmt.Errorf("LAN_TRANSFER_ORIGIN port is invalid")
+		}
+	}
+	return "https://" + parsed.Host, nil
 }
 
 func validTransferDomain(value string) bool {

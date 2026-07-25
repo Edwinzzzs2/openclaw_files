@@ -163,6 +163,9 @@ func requireApplicationRequestHeader(next http.Handler) http.Handler {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connectSource := "'self'"
+		if s.config.LANTransferOrigin != "" {
+			connectSource += " " + s.config.LANTransferOrigin
+		}
 		if s.transfer.enabled() {
 			connectSource += " https://" + s.config.STUNTransferDomain + ":*"
 		}

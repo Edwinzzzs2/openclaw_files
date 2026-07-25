@@ -28,7 +28,7 @@ ClawFiles 是一个面向手机使用的单目录文件投递器。它把服务�
 - 桌面端同时上传两个文件；iPhone/iPad 串行上传以降低 WebKit 连接压力
 - 暂停、继续、取消和失败重试
 - 单个分块 20 秒没有进度时自动中止并续传
-- STUN 高速地址不可用时自动回到当前 FRP 域名
+- 局域网 HTTPS 地址优先，失败后自动切换 STUN，再回到当前 FRP 域名
 - 刷新页面后，重新选择同一个文件可以从服务器保存的偏移量继续
 - 同名文件不会覆盖，自动命名为 `文件名 (1).ext`
 - 完成前保存在隐藏目录，完成后再原子链接到目标目录
@@ -64,6 +64,7 @@ HTTP_PORT=3661
 PUID=1000
 PGID=1000
 COOKIE_SECURE=false
+LAN_TRANSFER_ORIGIN=
 STUN_TRANSFER_DOMAIN=
 STUN_WEBHOOK_TOKEN=
 TRANSFER_SIGNING_KEY=
@@ -134,19 +135,35 @@ server {
 
 网页端最大上传分块为 2 MiB，因此反向代理只需要允许略大于单个分块的请求，而不需要允许单个 100 GB 请求。iPhone/iPad 会自动改用 128 KiB 分块。
 
-## STUN 高速上传与下载
+## 局域网与 STUN 高速上传下载
 
-PWA 始终从稳定的 FRP 域名打开，不会发生页面跳转。ClawFiles 收到端口变化 Webhook 后，仅把上传和下载请求优先发往 STUN 高速地址；高速地址连接失败时，会自动回到当前页面所在的 FRP 域名。`STUN_TRANSFER_DOMAIN` 可以与当前 PWA 域名完全不同，不需要配置 `PUBLIC_ORIGIN`。
+PWA 始终从稳定的 FRP 域名打开，不会发生页面跳转。上传、单文件下载和批量 ZIP 下载统一按照以下顺序选择通道：
+
+```text
+LAN_TRANSFER_ORIGIN → STUN 动态地址 → 当前 FRP 域名
+```
+
+局域网入口会先进行短时 HTTPS 与签名令牌探测，探测成功后整次传输走局域网；不可用时才尝试 STUN。`STUN_TRANSFER_DOMAIN` 可以与当前 PWA 域名完全不同，不需要配置 `PUBLIC_ORIGIN`。
 
 Compose 中配置：
 
 ```yaml
 environment:
   COOKIE_SECURE: "true"
+  LAN_TRANSFER_ORIGIN: "https://clawfiles-lan.dolast.top:10010"
   STUN_TRANSFER_DOMAIN: "stun.example.com"
   STUN_WEBHOOK_TOKEN: "至少24位的随机Webhook令牌"
   TRANSFER_SIGNING_KEY: "至少32位的随机签名密钥"
 ```
+
+`LAN_TRANSFER_ORIGIN` 必须填写完整的 HTTPS Origin，可以包含固定端口，但不能包含路径、查询参数或片段。末尾 `/` 会被自动移除。局域网 DNS 应把该域名解析到运行 HTTPS 反向代理的设备，而不是直接解析到 ClawFiles 后端。例如：
+
+```text
+clawfiles-lan.dolast.top → 192.168.31.57
+Lucky HTTPS :10010 → http://192.168.31.73:3661
+```
+
+若使用 OpenClash Fake-IP 模式，应将该域名加入 `DIRECT` 规则和 Fake-IP 过滤列表。局域网入口使用与 STUN 相同的短期签名令牌，因此配置 `LAN_TRANSFER_ORIGIN` 时仍需同时配置下面三个 STUN/签名变量。
 
 `STUN_TRANSFER_DOMAIN` 只填写域名，不要带 `https://`、路径或端口。三个 STUN 变量必须一起填写；全部留空则关闭高速通道。可以用下面的命令生成随机值：
 
@@ -220,7 +237,7 @@ ClawFiles 固定使用 YAML 中的 `STUN_TRANSFER_DOMAIN`，不会信任 Webhook
 
 STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口，并由它使用 `STUN_TRANSFER_DOMAIN` 的有效证书终止 TLS，再反向代理到 ClawFiles 的 HTTP `:8080`。不要把公网 STUN 端口直接转发到 ClawFiles 的纯 HTTP 端口，否则浏览器无法通过 HTTPS 上传。
 
-上传任务使用独立的短期签名令牌，不依赖两个域名之间共享 Cookie；下载通过 PWA 的 Service Worker 先尝试 STUN，连接失败后改走 FRP。
+上传任务使用独立的短期签名令牌，不依赖不同域名之间共享 Cookie；下载通过 PWA 的 Service Worker 依次尝试局域网、STUN 和 FRP。
 
 ## 配置
 
@@ -233,6 +250,7 @@ STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口�
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设置为 `true` |
 | `MAX_UPLOAD_SIZE` | `107374182400` | 单文件上限，单位为字节，默认 100 GiB |
 | `UPLOAD_CHUNK_SIZE` | `2097152` | 服务端允许的分块上限，单位为字节，允许 1-64 MiB；网页端最多使用 2 MiB，iPhone/iPad 自动使用 128 KiB |
+| `LAN_TRANSFER_ORIGIN` | 空 | 固定局域网 HTTPS Origin，可包含端口，例如 `https://clawfiles-lan.dolast.top:10010` |
 | `STUN_TRANSFER_DOMAIN` | 空 | STUN 高速通道域名，只填写主机名 |
 | `STUN_WEBHOOK_TOKEN` | 空 | 接收端口变化通知的 Bearer 令牌，至少 24 位 |
 | `TRANSFER_SIGNING_KEY` | 空 | 跨域上传和下载令牌的签名密钥，至少 32 位 |
