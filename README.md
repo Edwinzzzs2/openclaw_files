@@ -147,17 +147,130 @@ server {
 
 ## 局域网与 STUN 高速上传下载
 
-PWA 始终从稳定的 FRP 域名打开，不会发生页面跳转。上传、单文件下载和批量 ZIP 下载统一按照以下顺序选择通道：
+### 核心思想：页面入口与传输入口分离
+
+PWA 始终从稳定的 FRP 域名打开，登录、浏览目录、创建上传任务等小请求也始终走这个稳定入口。真正占用带宽的上传分块、单文件下载和批量 ZIP 下载，才根据当前网络切换到更快的地址。页面不会跳转，也不需要把 PWA 分别安装两次。
+
+一套完整部署包含四个逻辑地址：
+
+| 地址 | 示例 | 用途 |
+|---|---|---|
+| 稳定页面入口 | `https://clawfiles.dolast.top` | FRP 或公网反向代理，负责始终能打开 PWA |
+| 局域网传输入口 | `https://clawfiles-lan.dolast.top:10010` | 家中 Wi-Fi 下直连 Lucky，速度最高且不消耗公网带宽 |
+| STUN 传输入口 | `https://stun.example.com:动态端口` | 外网环境下使用家庭宽带 STUN 映射的动态端口 |
+| ClawFiles 后端 | `http://192.168.31.73:3661` | Docker 暴露的纯 HTTP 服务，只供反向代理访问 |
+
+局域网入口必须使用域名和有效 HTTPS 证书，不能让 HTTPS PWA 直接请求 `http://192.168.x.x`。否则会同时遇到浏览器混合内容限制、证书主机名不匹配和 iPhone PWA 本地网络限制。
+
+### 自动选择流程
+
+所有大流量操作统一按照以下优先级选择通道：
 
 ```text
 LAN_TRANSFER_ORIGIN → STUN 动态地址 → 当前 FRP 域名
 ```
 
-局域网入口会先进行短时 HTTPS 与签名令牌探测，探测成功后整次传输走局域网；不可用时才尝试 STUN。`STUN_TRANSFER_DOMAIN` 可以与当前 PWA 域名完全不同，不需要配置 `PUBLIC_ORIGIN`。
+一次上传的完整流程如下：
 
-页面顶部会按同样的优先级探测并显示当前通道。真正开始上传或下载后，状态会以该次传输实际使用的通道为准；局域网和 STUN 都未使用时显示“中转通道”。
+1. PWA 先通过稳定入口创建上传任务，服务器返回任务 ID 和短期传输令牌。
+2. PWA 请求 `/api/transfer`，获得固定局域网地址和当前 STUN 动态地址。
+3. 客户端用短超时探测局域网上传端点；探测成功后，后续分块直接发送到局域网入口。
+4. 局域网不可用时改用 STUN；STUN 也不可用时回到当前 FRP 域名。
+5. 某条通道在上传过程中断开时，客户端重新读取服务端已确认偏移量，再从未完成位置切换通道续传，不会从零开始。
 
-Compose 中配置：
+下载使用相同优先级。服务端先生成带短期签名的三个候选 URL，再由 PWA Service Worker 依次尝试局域网、STUN 和 FRP。API、文件内容和传输令牌不会进入 Service Worker 缓存。
+
+页面顶部状态按同样的优先级自动探测：
+
+- `局域网在线`：当前优先使用固定局域网 HTTPS 入口。
+- `STUN 通道在线`：局域网不可用，当前使用动态映射端口。
+- `中转在线`：局域网和 STUN 都不可用，当前使用稳定 FRP。
+
+状态探测只是预判。真正开始上传或下载后，页面会以该次传输实际使用的通道更新状态。
+
+### 为什么跨域传输不共享登录 Cookie
+
+稳定域名、局域网域名和 STUN 域名可能完全不同，浏览器不会在这些域名之间共享登录 Cookie。ClawFiles 因此为每个上传任务、文件下载和批量下载生成有有效期的签名令牌：
+
+- 局域网和 STUN 入口只接受正确签名的传输请求。
+- 令牌绑定具体上传任务或文件路径，不能改成任意路径。
+- CORS 只开放传输所需的 `GET`、`HEAD`、`PATCH` 和相关请求头。
+- `TRANSFER_SIGNING_KEY` 只保存在服务器环境变量中，不会发送给浏览器。
+
+`STUN_TRANSFER_DOMAIN` 可以与 PWA 当前域名完全不同，不需要配置 `PUBLIC_ORIGIN`。
+
+### 第一步：配置稳定页面入口
+
+使用 FRP、Lucky、Caddy 或 Nginx 提供一个稳定 HTTPS 域名，例如：
+
+```text
+https://clawfiles.dolast.top → http://192.168.31.73:3661
+```
+
+PWA 始终从这里打开和安装。即使局域网或 STUN 暂时不可用，也不会影响进入文件页面和管理已有文件。
+
+### 第二步：配置局域网 HTTPS 入口
+
+为局域网单独准备一个域名，并把 A 记录或局域网分流 DNS 指向运行 Lucky 的设备：
+
+```text
+clawfiles-lan.dolast.top → 192.168.31.57
+Lucky HTTPS :10010 → http://192.168.31.73:3661
+```
+
+Lucky 中需要：
+
+1. 新建 HTTPS 反向代理规则并监听 `10010`。
+2. 域名填写 `clawfiles-lan.dolast.top`。
+3. 为该域名配置有效 TLS 证书。
+4. 后端地址填写 `http://192.168.31.73:3661`。
+5. 不要开启会把请求再次重定向到公网域名的规则。
+
+验证时直接访问：
+
+```text
+https://clawfiles-lan.dolast.top:10010/api/health
+```
+
+应快速返回：
+
+```json
+{"status":"ok"}
+```
+
+### 第三步：配置 OpenClash 和手机网络
+
+如果 OpenClash 使用 Fake-IP 模式，仅添加 `DIRECT` 规则还不够。必须同时避免局域网域名被解析成 `198.18.0.0/16` 的 Fake-IP。
+
+在自定义规则的 `rules:` 下加入：
+
+```yaml
+rules:
+  - DOMAIN,clawfiles-lan.dolast.top,DIRECT
+```
+
+在 DNS 设置的自定义 Fake-IP-Filter 中加入：
+
+```text
+clawfiles-lan.dolast.top
+```
+
+Fake-IP-Filter 使用黑名单模式时，匹配到的域名应返回真实地址 `192.168.31.57`。修改后要保存、应用并重启 OpenClash，同时清理 Fake-IP/DNS 缓存，再让手机重新连接 Wi-Fi。
+
+`LAN_TRANSFER_ORIGIN` 是 Docker Compose 环境变量，不能写进 OpenClash 的 `rules:` 编辑框。
+
+iPhone 会优先尝试 IPv6。如果局域网没有完整可用的 IPv6 DNS、路由、Lucky 监听和防火墙配置，可能先等待 IPv6 超时再回退 IPv4，表现为首次检测或上传卡住。只使用 IPv4 时，建议在 OpenClash 中关闭“IPv6 代理”和“IPv6 DNS 解析”；若要保留 IPv6，则必须保证局域网域名的 AAAA 记录能直达 Lucky。
+
+手机端还应确认：
+
+- 当前连接的是同一个家庭 Wi-Fi。
+- Wi-Fi 的 DNS 配置为“自动”，没有额外的加密 DNS 或 VPN 接管该域名。
+- 如果系统询问本地网络访问权限，应选择允许。
+- 修改 DNS 后完全关闭 PWA，再重新打开。
+
+### 第四步：配置 Compose
+
+Compose 中配置局域网入口和 STUN 签名参数：
 
 ```yaml
 environment:
@@ -175,7 +288,7 @@ clawfiles-lan.dolast.top → 192.168.31.57
 Lucky HTTPS :10010 → http://192.168.31.73:3661
 ```
 
-若使用 OpenClash Fake-IP 模式，应将该域名加入 `DIRECT` 规则和 Fake-IP 过滤列表。局域网入口使用与 STUN 相同的短期签名令牌，因此配置 `LAN_TRANSFER_ORIGIN` 时仍需同时配置下面三个 STUN/签名变量。
+局域网入口使用与 STUN 相同的短期签名令牌，因此配置 `LAN_TRANSFER_ORIGIN` 时仍需同时配置下面三个 STUN/签名变量。
 
 `STUN_TRANSFER_DOMAIN` 只填写域名，不要带 `https://`、路径或端口。三个 STUN 变量必须一起填写；全部留空则关闭高速通道。可以用下面的命令生成随机值：
 
@@ -183,6 +296,15 @@ Lucky HTTPS :10010 → http://192.168.31.73:3661
 openssl rand -hex 24
 openssl rand -hex 32
 ```
+
+修改后更新容器：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### 第五步：配置 STUN Webhook
 
 端口变化时，请求：
 
@@ -251,6 +373,41 @@ STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口�
 
 上传任务使用独立的短期签名令牌，不依赖不同域名之间共享 Cookie；下载通过 PWA 的 Service Worker 依次尝试局域网、STUN 和 FRP。
 
+### 验证与排障
+
+建议按从底层到页面的顺序验证：
+
+```bash
+# 1. 域名应返回 Lucky 的局域网地址，而不是 198.18.x.x
+nslookup clawfiles-lan.dolast.top
+
+# 2. HTTPS、证书和 Lucky 反向代理应返回 200
+curl -i https://clawfiles-lan.dolast.top:10010/api/health
+
+# 3. 查看容器是否正常
+docker compose ps
+docker compose logs --tail=100 clawfiles
+```
+
+常见现象：
+
+| 现象 | 常见原因 | 处理方式 |
+|---|---|---|
+| DNS 返回 `198.18.x.x` | OpenClash Fake-IP-Filter 未生效或仍有缓存 | 加入精确域名，重启 OpenClash 并清理 DNS/Fake-IP 缓存 |
+| 强制连接 `192.168.31.57` 正常，使用域名 TLS 失败 | Fake-IP、代理规则或 IPv6 抢先连接错误 | 检查 `DIRECT`、Fake-IP-Filter；不使用 IPv6 时关闭 IPv6 DNS/代理 |
+| 电脑显示局域网，手机显示 STUN | 手机使用了不同 DNS、VPN、加密 DNS或 IPv6 路径 | 关闭相关接管，重连 Wi-Fi，完全关闭并重开 PWA |
+| `/api/health` 正常，但上传仍切换到 STUN | 局域网上传端点的 `HEAD/PATCH` 被代理或 WAF 拦截 | Lucky 放行 `GET/HEAD/PATCH/OPTIONS` 及传输请求头 |
+| 局域网首次稍慢，后续很快 | TLS 冷启动或证书链首次加载 | 首次响应低于探测超时即可，无需处理 |
+| 页面长时间显示旧样式或旧状态 | PWA 外壳仍是旧 Service Worker | 完全关闭 PWA 后重开，必要时删除桌面 PWA 再安装 |
+| STUN Webhook 返回 400 | JSON、事件、端口或时间字段校验失败 | 对照下方请求格式，并检查服务端日志 |
+
+最终正常状态应满足：
+
+1. 手机访问局域网 `/api/health` 能快速返回 200。
+2. 家庭 Wi-Fi 下页面顶部显示“局域网在线”。
+3. 关闭 Wi-Fi 后自动变为“STUN 通道在线”或“中转在线”。
+4. 切换网络不会让上传从零开始，重新选择同一文件可以按服务端偏移量续传。
+
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |
@@ -261,6 +418,7 @@ STUN 外部端口必须先进入 Lucky、Caddy 或 Nginx 的 HTTPS 监听端口�
 | `APP_PASSWORD` | 空 | 登录密码。为空时关闭鉴权，不建议公网使用 |
 | `COOKIE_SECURE` | `false` | HTTPS 部署时设置为 `true` |
 | `MAX_UPLOAD_SIZE` | `107374182400` | 单文件上限，单位为字节，默认 100 GiB |
+| `MAX_PREVIEW_SIZE` | `20971520` | 在线预览文件上限，单位为字节，默认 20 MiB |
 | `UPLOAD_CHUNK_SIZE` | `2097152` | 服务端允许的分块上限，单位为字节，允许 1-64 MiB；网页端最多使用 2 MiB，iPhone/iPad 自动使用 128 KiB |
 | `LAN_TRANSFER_ORIGIN` | 空 | 固定局域网 HTTPS Origin，可包含端口，例如 `https://clawfiles-lan.dolast.top:10010` |
 | `STUN_TRANSFER_DOMAIN` | 空 | STUN 高速通道域名，只填写主机名 |
