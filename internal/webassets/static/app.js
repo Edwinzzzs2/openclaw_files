@@ -5,7 +5,6 @@ import {
   deleteSelection,
   downloadURL,
   listFiles,
-  loadConfig,
   loadRecent,
   loadTransferStatus,
   login,
@@ -22,13 +21,11 @@ const STUN_STATUS_TIMEOUT = 7000;
 
 const state = {
   currentPath: "",
-  currentServerPath: "",
   entries: [],
   uploadTarget: "",
   pickerPath: "",
   selectedPaths: new Set(),
   view: "uploads",
-  config: null,
   transferRoute: "checking",
 };
 
@@ -47,7 +44,6 @@ const elements = {
   searchWrap: document.querySelector("#search-wrap"),
   searchInput: document.querySelector("#search-input"),
   breadcrumbs: document.querySelector("#breadcrumbs"),
-  currentServerPath: document.querySelector("#current-server-path"),
   entryCount: document.querySelector("#entry-count"),
   fileList: document.querySelector("#file-list"),
   filesEmpty: document.querySelector("#files-empty"),
@@ -189,7 +185,7 @@ function bindEvents() {
   });
   uploadQueue.addEventListener("complete", (event) => {
     const file = event.detail.result;
-    showToast("上传完成", file?.serverPath || event.detail.file.name);
+    showToast("上传完成", file?.name || event.detail.file.name);
     refreshRecent();
     const uploadedParent = normalizePath(file?.path).split("/").slice(0, -1).join("/");
     if (uploadedParent === normalizePath(state.currentPath)) {
@@ -241,7 +237,6 @@ async function handleLogout() {
 async function enterApplication() {
   elements.loginScreen.hidden = true;
   elements.appShell.hidden = false;
-  state.config = await loadConfig();
   void detectTransferRoute();
   const requestedView = location.hash.replace(/^#/, "");
   const initialView = ["files", "uploads", "recent"].includes(requestedView)
@@ -360,7 +355,6 @@ async function loadDirectory(path) {
   try {
     const response = await listFiles(path);
     state.currentPath = response.path;
-    state.currentServerPath = response.serverPath;
     state.entries = response.entries;
     state.selectedPaths.clear();
     renderBreadcrumbs();
@@ -375,18 +369,26 @@ async function loadDirectory(path) {
 
 function renderBreadcrumbs() {
   const fragments = [];
-  fragments.push('<button class="breadcrumb-button" type="button" data-path="">根目录</button>');
+  const segments = state.currentPath.split("/").filter(Boolean);
+  fragments.push(`
+    <button class="breadcrumb-button breadcrumb-root" type="button" data-path=""
+      ${segments.length === 0 ? 'aria-current="page"' : ""}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3.5 7.5h6l1.7 2H20.5v8.75A1.75 1.75 0 0 1 18.75 20H5.25A1.75 1.75 0 0 1 3.5 18.25V7.5Z"/>
+        <path d="M3.5 7.5V5.75A1.75 1.75 0 0 1 5.25 4h4l2 2.25h7.5"/>
+      </svg>
+      <span>根目录</span>
+    </button>`);
   let current = "";
-  for (const segment of state.currentPath.split("/").filter(Boolean)) {
+  segments.forEach((segment, index) => {
     current = current ? `${current}/${segment}` : segment;
-    fragments.push('<span class="breadcrumb-separator">/</span>');
+    fragments.push('<span class="breadcrumb-separator" aria-hidden="true">/</span>');
     fragments.push(
-      `<button class="breadcrumb-button" type="button" data-path="${escapeHTML(current)}">${escapeHTML(segment)}</button>`,
+      `<button class="breadcrumb-button" type="button" data-path="${escapeHTML(current)}"
+        ${index === segments.length - 1 ? 'aria-current="page"' : ""}>${escapeHTML(segment)}</button>`,
     );
-  }
+  });
   elements.breadcrumbs.innerHTML = fragments.join("");
-  elements.currentServerPath.textContent = state.currentServerPath;
-  elements.currentServerPath.title = state.currentServerPath;
 }
 
 function renderFiles() {
@@ -459,7 +461,7 @@ function handleFileAction(event) {
     return;
   }
   if (action === "copy") {
-    copyText(button.dataset.path);
+    copyText(button.dataset.path, "服务器路径已复制");
     return;
   }
   const entry = decodeEntry(button.dataset.entry);
@@ -623,9 +625,9 @@ async function handleCreateFolder(event) {
 
 function setUploadTarget(path) {
   state.uploadTarget = normalizePath(path);
-  const hostPath = joinHostPath(state.config?.hostPathPrefix || "", state.uploadTarget);
-  elements.uploadTargetPath.textContent = hostPath;
-  elements.uploadTargetPath.title = hostPath;
+  const displayPath = formatDirectoryPath(state.uploadTarget);
+  elements.uploadTargetPath.textContent = displayPath;
+  elements.uploadTargetPath.title = displayPath;
 }
 
 function addSelectedFiles(files) {
@@ -676,7 +678,6 @@ function uploadItemTemplate(item) {
           <span data-upload-field="speed" hidden></span>
           <span data-upload-field="eta" hidden></span>
           <span data-upload-field="error" hidden></span>
-          <span data-upload-field="result" hidden></span>
         </div>
       </div>
       <div class="upload-item-actions"></div>
@@ -724,7 +725,6 @@ function updateUploadItem(element, item) {
   setUploadField(element, "speed", speed);
   setUploadField(element, "eta", eta);
   setUploadField(element, "error", item.error || "");
-  setUploadField(element, "result", item.result?.serverPath || "");
 
   const progress = element.querySelector(".progress");
   if (progress?.getAttribute("aria-valuenow") !== String(percent)) {
@@ -786,7 +786,9 @@ function handleUploadAction(event) {
       break;
     case "copy": {
       const item = uploadQueue.find(id);
-      if (item?.result?.serverPath) copyText(item.result.serverPath);
+      if (item?.result?.serverPath) {
+        copyText(item.result.serverPath, "服务器路径已复制");
+      }
       break;
     }
   }
@@ -819,7 +821,7 @@ async function renderPicker() {
   try {
     const response = await listFiles(state.pickerPath);
     state.pickerPath = response.path;
-    elements.pickerCurrentPath.textContent = response.serverPath;
+    elements.pickerCurrentPath.textContent = formatDirectoryPath(response.path);
     elements.pickerUpButton.disabled = !response.path;
     const directories = response.entries.filter((entry) => entry.type === "directory");
     elements.pickerList.innerHTML = directories.length
@@ -855,7 +857,7 @@ function confirmPickerPath() {
 
 async function openPreview(entry) {
   elements.previewTitle.textContent = entry.name;
-  elements.previewMeta.textContent = `${formatBytes(entry.size)}，${entry.serverPath}`;
+  elements.previewMeta.textContent = `${formatBytes(entry.size)}，${formatDate(entry.modifiedAt)}`;
   elements.previewDownload.href = downloadURL(entry.path);
   elements.previewDownload.download = entry.name;
   elements.previewContent.replaceChildren();
@@ -938,7 +940,7 @@ function closeDialog(id) {
   if (dialog?.open) dialog.close();
 }
 
-async function copyText(value, toastMessage = value) {
+async function copyText(value, toastMessage = "服务器路径已复制") {
   try {
     await navigator.clipboard.writeText(value);
   } catch {
@@ -1143,9 +1145,9 @@ function normalizePath(path) {
     .join("/");
 }
 
-function joinHostPath(prefix, relative) {
-  const cleanPrefix = String(prefix || "").replace(/[\\/]+$/, "");
-  return relative ? `${cleanPrefix}/${relative}` : cleanPrefix;
+function formatDirectoryPath(path) {
+  const segments = normalizePath(path).split("/").filter(Boolean);
+  return segments.length ? `根目录 / ${segments.join(" / ")}` : "根目录";
 }
 
 function encodeEntry(entry) {

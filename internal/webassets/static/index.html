@@ -55,20 +55,19 @@
         <header class="page-heading">
           <div class="heading-copy">
             <h1>文件</h1>
-            <div class="breadcrumbs" id="breadcrumbs" aria-label="目录路径"></div>
+            <div class="directory-context">
+              <div class="breadcrumbs" id="breadcrumbs" aria-label="目录路径"></div>
+              <span class="entry-count" id="entry-count"></span>
+            </div>
           </div>
           <div class="page-actions">
             <button class="button" id="new-folder-button" type="button">新建文件夹</button>
+            <button class="button" id="refresh-files-button" type="button">刷新</button>
             <button class="button primary" id="files-upload-button" type="button">上传</button>
           </div>
         </header>
 
         <section class="file-panel" aria-label="文件列表">
-          <div class="panel-toolbar">
-            <code class="current-server-path" id="current-server-path"></code>
-            <span class="entry-count" id="entry-count"></span>
-            <button class="toolbar-button" id="refresh-files-button" type="button">刷新</button>
-          </div>
           <div class="file-header">
             <label class="header-selection">
               <input id="select-all-checkbox" type="checkbox" aria-label="选择当前列表全部项目" />
@@ -99,7 +98,7 @@
 
         <section class="upload-target">
           <span>目标目录</span>
-          <code id="upload-target-path"></code>
+          <strong id="upload-target-path"></strong>
         </section>
 
         <label class="dropzone" id="dropzone" for="file-picker">
@@ -213,7 +212,7 @@
     <header class="dialog-header">
       <div>
         <strong>选择上传目录</strong>
-        <code id="picker-current-path"></code>
+        <span id="picker-current-path"></span>
       </div>
       <button class="icon-button" type="button" data-close-dialog="folder-picker-dialog" aria-label="关闭">×</button>
     </header>

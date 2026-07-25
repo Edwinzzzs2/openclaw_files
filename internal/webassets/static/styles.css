@@ -333,26 +333,69 @@ body.selection-active .app {
   color: var(--text-2);
 }
 
+.directory-context {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 7px;
+  min-width: 0;
+}
+
 .breadcrumbs {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 3px;
-  margin-top: 7px;
-  overflow: hidden;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.breadcrumbs::-webkit-scrollbar {
+  display: none;
 }
 
 .breadcrumb-button {
-  min-width: 0;
-  border: 0;
-  padding: 2px 4px;
+  flex: 0 0 auto;
+  min-height: 27px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 3px 6px;
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
-.breadcrumb-button:hover {
+.breadcrumb-button:hover,
+.breadcrumb-button:focus-visible {
+  border-color: var(--line);
+  background: var(--surface);
   color: var(--accent);
+}
+
+.breadcrumb-button[aria-current="page"] {
+  color: var(--text);
+}
+
+.breadcrumb-root {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 560;
+}
+
+.breadcrumb-root svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .breadcrumb-separator {
@@ -360,6 +403,7 @@ body.selection-active .app {
 }
 
 .page-actions {
+  flex: 0 0 auto;
   display: flex;
   gap: 9px;
 }
@@ -373,6 +417,7 @@ body.selection-active .app {
   color: var(--text);
   cursor: pointer;
   font-weight: 540;
+  white-space: nowrap;
 }
 
 .button:hover {
@@ -423,24 +468,6 @@ body.selection-active .app {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
-}
-
-.panel-toolbar {
-  min-height: 54px;
-  padding: 10px 12px 10px 17px;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.current-server-path {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-2);
 }
 
 code {
@@ -845,10 +872,12 @@ code {
   color: var(--text-2);
 }
 
-.upload-target code {
+.upload-target strong {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 560;
 }
 
 .dropzone {
@@ -1409,11 +1438,6 @@ code {
 
   .file-panel {
     box-shadow: none;
-  }
-
-  .panel-toolbar {
-    min-height: 50px;
-    padding-left: 12px;
   }
 
   .entry-count {
