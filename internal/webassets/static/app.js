@@ -19,6 +19,7 @@ import { UploadQueue } from "./uploads.js";
 
 const TRANSFER_DISCOVERY_TIMEOUT = 5000;
 const LAN_STATUS_TIMEOUT = 4000;
+const LAN_RECOVERY_TIMEOUT = 15000;
 const STUN_STATUS_TIMEOUT = 7000;
 const IOS_NATIVE_SAVE_LIMIT = 64 * 1024 * 1024;
 
@@ -330,12 +331,24 @@ async function detectTransferRoute() {
   const lanOrigin = transfer.lanBaseUrl || "";
   const stunOrigin = transfer.stunBaseUrl || transfer.baseUrl || "";
   let route = "stable";
-  if (lanOrigin && await probeRoute(lanOrigin, LAN_STATUS_TIMEOUT)) {
+  const lanAvailable = lanOrigin &&
+    await probeRoute(lanOrigin, LAN_STATUS_TIMEOUT);
+  if (lanAvailable) {
     route = "lan";
   } else if (stunOrigin && await probeRoute(stunOrigin, STUN_STATUS_TIMEOUT)) {
     route = "stun";
   }
   if (checkID === transferRouteCheckID) renderTransferStatus(route);
+  if (lanOrigin && !lanAvailable) {
+    void recoverLANRoute(lanOrigin, checkID);
+  }
+}
+
+async function recoverLANRoute(origin, checkID) {
+  const available = await probeRoute(origin, LAN_RECOVERY_TIMEOUT);
+  if (available && checkID === transferRouteCheckID) {
+    renderTransferStatus("lan");
+  }
 }
 
 async function probeRoute(origin, timeoutMilliseconds) {
