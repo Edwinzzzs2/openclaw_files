@@ -68,6 +68,27 @@ export function loadTransferStatus(options = {}) {
   return apiFetch("/api/transfer", options);
 }
 
+export async function probeTransferEndpoint(baseURL, signal) {
+  const origin = String(baseURL || "").replace(/\/+$/, "");
+  if (!origin) throw new APIError("传输通道配置无效", 0);
+  let response;
+  try {
+    response = await fetch(`${origin}/api/health`, {
+      method: "GET",
+      credentials: "omit",
+      cache: "no-store",
+      signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    throw new APIError("传输通道不可用", 0);
+  }
+  if (!response.ok) {
+    throw new APIError(`传输通道不可用 (${response.status})`, response.status);
+  }
+  return true;
+}
+
 export function listFiles(path = "") {
   return apiFetch(`/api/files?path=${encodeURIComponent(path)}`);
 }

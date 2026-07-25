@@ -1,4 +1,4 @@
-const CACHE_NAME = "clawfiles-shell-v11";
+const CACHE_NAME = "clawfiles-shell-v12";
 const LAN_CONNECT_TIMEOUT = 2500;
 const STUN_CONNECT_TIMEOUT = 7000;
 const APP_SHELL = [
@@ -102,6 +102,7 @@ async function fetchSelectionArchive(url) {
     cache: "no-store",
   });
   if (transferResponse) return transferResponse;
+  notifyTransferRoute("stable");
 
   return fetch(
     plan?.fallbackUrl || `/api/selection/archive/${encodeURIComponent(id)}`,
@@ -145,6 +146,7 @@ async function fetchTransferContent(request, url) {
     cache: "no-store",
   });
   if (transferResponse) return transferResponse;
+  notifyTransferRoute("stable");
 
   const fallbackURL = plan?.fallbackUrl ||
     `/api/content?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
@@ -158,8 +160,8 @@ async function fetchTransferContent(request, url) {
 
 async function fetchPreferredTransfer(plan, options) {
   const candidates = [
-    { url: plan?.lanUrl, timeout: LAN_CONNECT_TIMEOUT },
-    { url: plan?.directUrl, timeout: STUN_CONNECT_TIMEOUT },
+    { route: "lan", url: plan?.lanUrl, timeout: LAN_CONNECT_TIMEOUT },
+    { route: "stun", url: plan?.directUrl, timeout: STUN_CONNECT_TIMEOUT },
   ];
   for (const candidate of candidates) {
     if (!candidate.url) continue;
@@ -168,7 +170,10 @@ async function fetchPreferredTransfer(plan, options) {
       options,
       candidate.timeout,
     );
-    if (response?.ok) return response;
+    if (response?.ok) {
+      notifyTransferRoute(candidate.route);
+      return response;
+    }
     await response?.body?.cancel();
   }
   return null;
@@ -187,4 +192,16 @@ async function fetchTransferCandidate(url, options, timeout) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function notifyTransferRoute(route) {
+  self.clients.matchAll({ type: "window", includeUncontrolled: true })
+    .then((clients) => {
+      for (const client of clients) {
+        client.postMessage({
+          type: "clawfiles:transfer-route",
+          route,
+        });
+      }
+    });
 }

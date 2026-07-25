@@ -328,8 +328,14 @@ export class UploadQueue extends EventTarget {
   }
 
   setTransferRoute(item, route, endpoint) {
+    const previousRoute = item.route;
     item.transferEndpoint = endpoint;
     item.route = route;
+    if (route !== previousRoute) {
+      this.dispatchEvent(new CustomEvent("routechange", {
+        detail: { route },
+      }));
+    }
   }
 
   transferRetryMessage(failedRoute, nextRoute) {

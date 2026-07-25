@@ -371,7 +371,8 @@ func (s *Server) transferCORS(next http.Handler) http.Handler {
 }
 
 func isTransferResource(path string) bool {
-	return path == "/api/content" ||
+	return path == "/api/health" ||
+		path == "/api/content" ||
 		strings.HasPrefix(path, "/api/uploads/") ||
 		strings.HasPrefix(path, "/api/selection/archive/")
 }

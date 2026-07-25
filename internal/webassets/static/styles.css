@@ -11,6 +11,8 @@
   --text-3: #8a9499;
   --accent: #168f87;
   --accent-hover: #117e77;
+  --channel-stun: #376f9b;
+  --channel-stun-soft: #edf4f8;
   --danger: #c84f4f;
   --danger-soft: #fff0f0;
   --radius: 12px;
@@ -30,6 +32,8 @@
   --text-3: #7f898d;
   --accent: #57b8b0;
   --accent-hover: #6ac3bc;
+  --channel-stun: #83afd0;
+  --channel-stun-soft: #1c2931;
   --danger: #e47d7d;
   --danger-soft: #372323;
   --shadow: 0 10px 34px rgba(0, 0, 0, 0.22);
@@ -137,6 +141,59 @@ a {
   height: 7px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+.transfer-status {
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 9px 4px 8px;
+  background: var(--surface-subtle);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.transfer-status:hover {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.transfer-status-mark {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.transfer-status[data-route="lan"] {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: var(--surface-active);
+  color: var(--accent);
+}
+
+.transfer-status[data-route="lan"] .transfer-status-mark {
+  background: var(--accent);
+}
+
+.transfer-status[data-route="stun"] {
+  border-color: color-mix(in srgb, var(--channel-stun) 28%, var(--line));
+  background: var(--channel-stun-soft);
+  color: var(--channel-stun);
+}
+
+.transfer-status[data-route="stun"] .transfer-status-mark {
+  background: var(--channel-stun);
+}
+
+.transfer-status[data-route="stable"] .transfer-status-mark {
+  background: var(--text-2);
 }
 
 .desktop-nav {
@@ -1307,6 +1364,16 @@ code {
   .topbar-inner,
   .app {
     width: calc(100% - 24px);
+  }
+
+  .topbar-inner {
+    gap: 10px;
+  }
+
+  .transfer-status {
+    min-height: 30px;
+    padding-right: 8px;
+    padding-left: 8px;
   }
 
   .server-status,

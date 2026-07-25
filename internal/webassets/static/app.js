@@ -7,12 +7,18 @@ import {
   listFiles,
   loadConfig,
   loadRecent,
+  loadTransferStatus,
   login,
   logout,
   prepareSelectionArchive,
+  probeTransferEndpoint,
   session,
 } from "./api.js";
 import { UploadQueue } from "./uploads.js";
+
+const TRANSFER_DISCOVERY_TIMEOUT = 5000;
+const LAN_STATUS_TIMEOUT = 2500;
+const STUN_STATUS_TIMEOUT = 7000;
 
 const state = {
   currentPath: "",
@@ -23,6 +29,7 @@ const state = {
   selectedPaths: new Set(),
   view: "uploads",
   config: null,
+  transferRoute: "checking",
 };
 
 const uploadQueue = new UploadQueue();
@@ -33,6 +40,8 @@ const elements = {
   loginError: document.querySelector("#login-error"),
   passwordInput: document.querySelector("#password-input"),
   appShell: document.querySelector("#app-shell"),
+  transferStatus: document.querySelector("#transfer-status"),
+  transferStatusText: document.querySelector("#transfer-status-text"),
   logoutButton: document.querySelector("#logout-button"),
   themeButton: document.querySelector("#theme-button"),
   searchWrap: document.querySelector("#search-wrap"),
@@ -86,6 +95,8 @@ const elements = {
 };
 
 let toastTimer;
+let transferRouteCheckID = 0;
+let lastTransferRouteCheck = 0;
 
 initialize();
 
@@ -110,6 +121,7 @@ function bindEvents() {
   elements.loginForm.addEventListener("submit", handleLogin);
   elements.logoutButton.addEventListener("click", handleLogout);
   elements.themeButton.addEventListener("click", toggleTheme);
+  elements.transferStatus.addEventListener("click", detectTransferRoute);
   elements.searchInput.addEventListener("input", renderFiles);
   elements.newFolderButton.addEventListener("click", openFolderDialog);
   elements.filesUploadButton.addEventListener("click", () => {
@@ -171,6 +183,10 @@ function bindEvents() {
   elements.dropzone.addEventListener("drop", (event) => addSelectedFiles(event.dataTransfer.files));
 
   uploadQueue.addEventListener("change", renderUploads);
+  uploadQueue.addEventListener("routechange", (event) => {
+    transferRouteCheckID++;
+    renderTransferStatus(event.detail?.route);
+  });
   uploadQueue.addEventListener("complete", (event) => {
     const file = event.detail.result;
     showToast("上传完成", file?.serverPath || event.detail.file.name);
@@ -178,6 +194,21 @@ function bindEvents() {
     const uploadedParent = normalizePath(file?.path).split("/").slice(0, -1).join("/");
     if (uploadedParent === normalizePath(state.currentPath)) {
       loadDirectory(state.currentPath);
+    }
+  });
+  window.addEventListener("online", detectTransferRoute);
+  document.addEventListener("visibilitychange", () => {
+    if (
+      document.visibilityState === "visible" &&
+      Date.now() - lastTransferRouteCheck > 30_000
+    ) {
+      detectTransferRoute();
+    }
+  });
+  navigator.serviceWorker?.addEventListener("message", (event) => {
+    if (event.data?.type === "clawfiles:transfer-route") {
+      transferRouteCheckID++;
+      renderTransferStatus(event.data.route);
     }
   });
 }
@@ -211,6 +242,7 @@ async function enterApplication() {
   elements.loginScreen.hidden = true;
   elements.appShell.hidden = false;
   state.config = await loadConfig();
+  void detectTransferRoute();
   const requestedView = location.hash.replace(/^#/, "");
   const initialView = ["files", "uploads", "recent"].includes(requestedView)
     ? requestedView
@@ -218,6 +250,82 @@ async function enterApplication() {
   setUploadTarget(state.uploadTarget);
   await loadDirectory(state.currentPath);
   switchView(initialView);
+}
+
+async function detectTransferRoute() {
+  const checkID = ++transferRouteCheckID;
+  if (state.transferRoute === "checking") {
+    renderTransferStatus("checking");
+  }
+
+  let transfer;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      TRANSFER_DISCOVERY_TIMEOUT,
+    );
+    try {
+      transfer = await loadTransferStatus({ signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch {
+    if (checkID === transferRouteCheckID) renderTransferStatus("stable");
+    return;
+  }
+
+  const lanOrigin = transfer.lanBaseUrl || "";
+  const stunOrigin = transfer.stunBaseUrl || transfer.baseUrl || "";
+  let route = "stable";
+  if (lanOrigin && await probeRoute(lanOrigin, LAN_STATUS_TIMEOUT)) {
+    route = "lan";
+  } else if (stunOrigin && await probeRoute(stunOrigin, STUN_STATUS_TIMEOUT)) {
+    route = "stun";
+  }
+  if (checkID === transferRouteCheckID) renderTransferStatus(route);
+}
+
+async function probeRoute(origin, timeoutMilliseconds) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMilliseconds);
+  try {
+    await probeTransferEndpoint(origin, controller.signal);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function renderTransferStatus(route) {
+  const states = {
+    checking: {
+      label: "检测通道",
+      title: "正在检测局域网和 STUN 通道",
+    },
+    lan: {
+      label: "局域网直连",
+      title: "上传和下载优先走局域网，点击重新检测",
+    },
+    stun: {
+      label: "STUN 通道",
+      title: "局域网不可用，当前优先使用 STUN，点击重新检测",
+    },
+    stable: {
+      label: "中转通道",
+      title: "局域网和 STUN 不可用，当前使用中转，点击重新检测",
+    },
+  };
+  const nextRoute = states[route] ? route : "stable";
+  const next = states[nextRoute];
+  state.transferRoute = nextRoute;
+  lastTransferRouteCheck = Date.now();
+  elements.transferStatus.dataset.route = nextRoute;
+  elements.transferStatusText.textContent = next.label;
+  elements.transferStatus.title = next.title;
+  elements.transferStatus.setAttribute("aria-label", next.title);
 }
 
 function showLogin(message = "") {
