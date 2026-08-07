@@ -101,6 +101,9 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		if entries[i].Type != entries[j].Type {
 			return entries[i].Type == "directory"
 		}
+		if !entries[i].ModifiedAt.Equal(entries[j].ModifiedAt) {
+			return entries[i].ModifiedAt.After(entries[j].ModifiedAt)
+		}
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
 
